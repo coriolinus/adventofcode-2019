@@ -23,7 +23,6 @@ pub fn dispatch(day: u8, path: &Path, part1: bool, part2: bool) {
     match exercise {
         None => {
             eprintln!("exercise {} is not available", day);
-            return;
         }
         Some(exercise) => {
             if part1 {
