@@ -1,3 +1,4 @@
+use std::ops::Sub;
 use std::str::FromStr;
 
 pub fn follow(traces: &[Trace]) -> Vec<Line> {
@@ -20,10 +21,10 @@ pub fn follow(traces: &[Trace]) -> Vec<Line> {
 
 // https://stackoverflow.com/a/1968345/504550
 pub fn intersect(a: &Line, b: &Line) -> Option<Point> {
-    let p0 = a.a;
-    let p1 = a.b;
-    let p2 = b.a;
-    let p3 = b.b;
+    let p0 = a.from;
+    let p1 = a.to;
+    let p2 = b.from;
+    let p3 = b.to;
 
     let s1_x = (p1.x - p0.x) as f32;
     let s1_y = (p1.y - p0.y) as f32;
@@ -128,18 +129,29 @@ impl Point {
     }
 }
 
+impl Sub for Point {
+    type Output = Point;
+
+    fn sub(self, other: Point) -> Point {
+        Point {
+            x: self.x - other.x,
+            y: self.y - other.y,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Line {
-    pub a: Point,
-    pub b: Point,
+    pub from: Point,
+    pub to: Point,
 }
 
 impl Line {
-    fn new(a: Point, b: Point) -> Line {
-        if a <= b {
-            Line { a, b }
-        } else {
-            Line { b, a }
-        }
+    pub fn new(from: Point, to: Point) -> Line {
+        Line { from, to }
+    }
+
+    pub fn manhattan_len(&self) -> i32 {
+        (self.to - self.from).manhattan()
     }
 }
