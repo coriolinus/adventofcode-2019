@@ -6,6 +6,8 @@ use std::str::FromStr;
 
 pub mod day01;
 pub mod day02;
+pub mod day03;
+pub mod geometry;
 
 pub trait Exercise {
     fn part1(&self, path: &Path);
@@ -20,6 +22,7 @@ pub fn dispatch(day: u8, path: &Path, part1: bool, part2: bool) {
     let exercise: Option<Box<dyn Exercise>> = match day {
         1 => Some(Box::new(day01::Day01 {})),
         2 => Some(Box::new(day02::Day02 {})),
+        3 => Some(Box::new(day03::Day03 {})),
         _ => None,
     };
     match exercise {
