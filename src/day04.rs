@@ -17,13 +17,52 @@ impl Exercise for Day {
     }
 
     fn part2(&self, _: &Path) {
-        unimplemented!()
+        println!(
+            "possible pw count (no 3-runs): {}",
+            Password::new(LOW, HIGH).iter().filter(no_3_runs).count()
+        );
     }
+}
+
+// the name here isn't perfectly accurate: 3 runs are legal, as long as there
+// is at least one run of exactly 2
+fn no_3_runs(v: &u32) -> bool {
+    let digits = Password::to_digits(*v);
+    #[cfg(test)]
+    dbg!(digits);
+    for idx in 1..LEN {
+        #[cfg(test)]
+        {
+            dbg!(idx);
+            dbg!(digits[idx]);
+            dbg!(digits[idx - 1]);
+            if idx >= 2 {
+                dbg!(digits[idx - 2]);
+            }
+            if idx < LEN - 1 {
+                dbg!(digits[idx + 1]);
+            }
+        }
+        if digits[idx] == digits[idx - 1] {
+            // this is a run of at least 2, but is it exactly 2?
+            let mut exact2 = true;
+            if idx >= 2 {
+                exact2 &= digits[idx - 2] != digits[idx];
+            }
+            if idx < LEN - 1 {
+                exact2 &= digits[idx + 1] != digits[idx];
+            }
+            if exact2 {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 // this internal type stores the digits in reverse order: the 0 idx has the low
 // digit
-type Digits = [u8; LEN];
+pub type Digits = [u8; LEN];
 
 pub struct Password {
     high: u32,
@@ -41,18 +80,18 @@ impl Password {
             // so let's run a quick full scan and ensure we have the lowest initial value
             let mut pinidx = None;
             for idx in (1..LEN).rev() {
-                if pinidx.is_none() && p.digits[idx-1] < p.digits[idx] {
+                if pinidx.is_none() && p.digits[idx - 1] < p.digits[idx] {
                     pinidx = Some(idx);
                 }
                 if let Some(pidx) = pinidx {
-                    p.digits[idx-1] = p.digits[pidx];
+                    p.digits[idx - 1] = p.digits[pidx];
                 }
             }
         }
         p
     }
 
-    fn to_digits(mut n: u32) -> Digits {
+    pub fn to_digits(mut n: u32) -> Digits {
         let mut digits = [0; LEN];
         for idx in 0..LEN {
             digits[idx] = (n % 10) as u8;
@@ -63,7 +102,7 @@ impl Password {
     }
 
     fn is_legal_digits(digits: Digits) -> bool {
-        // because digits are stored backwards, each digit must be 
+        // because digits are stored backwards, each digit must be
         // greater than or equal to its successor
         digits.windows(2).all(|w| w[0] >= w[1])
             && digits.windows(2).any(|w| w[0] == w[1])
@@ -265,5 +304,12 @@ mod tests {
         // reset trailing digit to enable more counting
         pw.digits[0] = 1;
         assert!(pw.iter().take(2).count() > 0);
+    }
+
+    #[test]
+    fn test_no_3_runs_examples() {
+        assert!(no_3_runs(&112233));
+        assert!(!no_3_runs(&123444));
+        assert!(no_3_runs(&111122));
     }
 }
