@@ -19,7 +19,10 @@ impl Exercise for Day {
     fn part2(&self, _: &Path) {
         println!(
             "possible pw count (no 3-runs): {}",
-            Password::new(LOW, HIGH).iter().filter(|pw| no_3_runs(*pw)).count()
+            Password::new(LOW, HIGH)
+                .iter()
+                .filter(|pw| no_3_runs(*pw))
+                .count()
         );
     }
 }

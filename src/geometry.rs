@@ -126,7 +126,7 @@ impl Point {
 
     // on my machine, passing self by copy and reference are equally sized,
     // and passing by copy breaks the cleanest usage of this function in Iterator::map,
-    // so I'm going to retain the reference behavior. I expect the compiler to 
+    // so I'm going to retain the reference behavior. I expect the compiler to
     // inline this function anyway.
     #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn manhattan(&self) -> i32 {
