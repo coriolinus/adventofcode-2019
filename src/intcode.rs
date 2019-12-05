@@ -98,7 +98,7 @@ fn process(
     memory: &mut [Word],
     inputs: &mut Vec<i32>,
     outputs: &mut Vec<Output>,
-) -> Option<usize> {
+) -> Option<i32> {
     let (opcode, p1, p2, p3) = match memory[ip].destructure() {
         Ok((opcode, pc, pb, pa)) => (opcode, pc, pb, pa),
         Err(e) => {
@@ -145,6 +145,56 @@ fn process(
             outputs.push(Output::Output { ip, val });
             Some(2)
         }
+        5 => {
+            // jump if true
+            let test = **memory[ip + 1].value(p1, memory);
+            let ipval = **memory[ip + 2].value(p2, memory);
+            let ipdiff = ipval - ip as i32;
+            #[cfg(feature = "intcode-debug")]
+            dbg!("jump-if-true", ip, test, ipval, ipdiff);
+            if test != 0 {
+                Some(ipdiff)
+            } else {
+                Some(3)
+            }
+        }
+        6 => {
+            // jump if false
+            let test = **memory[ip + 1].value(p1, memory);
+            let ipval = **memory[ip + 2].value(p2, memory);
+            let ipdiff = ipval - ip as i32;
+            #[cfg(feature = "intcode-debug")]
+            dbg!("jump-if-false", ip, test, ipval, ipdiff);
+            if test == 0 {
+                Some(ipdiff)
+            } else {
+                Some(3)
+            }
+        }
+        7 => {
+            // less than
+            let out = memory[ip + 3];
+            *out.value_mut(p3, memory) =
+                if **memory[ip + 1].value(p1, memory) < **memory[ip + 2].value(p2, memory) {
+                    1
+                } else {
+                    0
+                }
+                .into();
+            Some(4)
+        }
+        8 => {
+            // equals
+            let out = memory[ip + 3];
+            *out.value_mut(p3, memory) =
+                if **memory[ip + 1].value(p1, memory) == **memory[ip + 2].value(p2, memory) {
+                    1
+                } else {
+                    0
+                }
+                .into();
+            Some(4)
+        }
         99 => {
             #[cfg(feature = "intcode-debug")]
             println!("explicit program halt at ip {}", ip);
@@ -174,7 +224,7 @@ where
     inputs.reverse();
     let mut outputs = Vec::new();
     while let Some(increment) = process(ip, memory, &mut inputs, &mut outputs) {
-        ip += increment;
+        ip = (ip as i32 + increment) as usize;
     }
     if !inputs.is_empty() {
         inputs.reverse();
