@@ -9,6 +9,7 @@ pub mod day02;
 pub mod day03;
 pub mod day04;
 pub mod geometry;
+pub mod intcode;
 
 pub trait Exercise {
     fn part1(&self, path: &Path);
