@@ -46,6 +46,7 @@ impl TryFrom<Word> for Mode {
     }
 }
 
+#[derive(Debug)]
 pub enum Output {
     Halt { ip: usize },
     Output { ip: usize, val: i32 },

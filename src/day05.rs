@@ -47,7 +47,7 @@ fn get_diagnostic(outputs: &[Output]) {
                             println!(" oip: {}; hip: {}; val: {}", oip, hip, val);
                         }
                     }
-                    _ => panic!("malformed diagnostic"),
+                    other => println!("malformed diagnostic: {:?}", other),
                 }
             }
         }
