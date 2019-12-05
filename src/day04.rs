@@ -4,8 +4,8 @@ use std::path::Path;
 
 pub struct Day;
 
-pub const LOW: u32 = 234208;
-pub const HIGH: u32 = 765869;
+pub const LOW: u32 = 234_208;
+pub const HIGH: u32 = 765_869;
 pub const LEN: usize = 6;
 
 impl Exercise for Day {
@@ -19,15 +19,15 @@ impl Exercise for Day {
     fn part2(&self, _: &Path) {
         println!(
             "possible pw count (no 3-runs): {}",
-            Password::new(LOW, HIGH).iter().filter(no_3_runs).count()
+            Password::new(LOW, HIGH).iter().filter(|pw| no_3_runs(*pw)).count()
         );
     }
 }
 
 // the name here isn't perfectly accurate: 3 runs are legal, as long as there
 // is at least one run of exactly 2
-fn no_3_runs(v: &u32) -> bool {
-    let digits = Password::to_digits(*v);
+fn no_3_runs(v: u32) -> bool {
+    let digits = Password::digits(v);
     #[cfg(test)]
     dbg!(digits);
     for idx in 1..LEN {
@@ -73,7 +73,7 @@ impl Password {
     pub fn new(start: u32, high: u32) -> Password {
         let mut p = Password {
             high,
-            digits: Self::to_digits(start),
+            digits: Self::digits(start),
         };
         if !Self::is_legal_digits(p.digits) {
             // we can't just use next, because it assumes that the digits are already valid
@@ -91,10 +91,10 @@ impl Password {
         p
     }
 
-    pub fn to_digits(mut n: u32) -> Digits {
+    pub fn digits(mut n: u32) -> Digits {
         let mut digits = [0; LEN];
-        for idx in 0..LEN {
-            digits[idx] = (n % 10) as u8;
+        for digit in digits.iter_mut() {
+            *digit = (n % 10) as u8;
             n /= 10;
         }
         debug_assert_eq!(n, 0); // otherwise, input too large
@@ -110,7 +110,7 @@ impl Password {
     }
 
     pub fn is_legal(n: u32) -> bool {
-        Self::is_legal_digits(Self::to_digits(n))
+        Self::is_legal_digits(Self::digits(n))
     }
 
     pub fn value(&self) -> u32 {
@@ -167,7 +167,7 @@ impl Password {
         debug_assert!(Self::is_legal_digits(self.digits));
     }
 
-    pub fn iter<'a>(&'a mut self) -> Iter<'a> {
+    pub fn iter(&mut self) -> Iter<'_> {
         Iter { pw: self }
     }
 }

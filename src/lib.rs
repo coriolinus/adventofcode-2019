@@ -1,3 +1,5 @@
+#![deny(clippy::all)]
+
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -78,7 +80,7 @@ where
         s.split(',')
             .map(str::parse)
             .collect::<Result<Vec<_>, _>>()
-            .map(|ts| CommaSep(ts))
+            .map(CommaSep)
     }
 }
 

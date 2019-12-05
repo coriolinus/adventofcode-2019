@@ -5,7 +5,7 @@ pub fn follow(traces: &[Trace]) -> Vec<Line> {
     let mut cursor = Point::new(0, 0);
     let mut out = Vec::with_capacity(traces.len());
     for trace in traces {
-        let prev = cursor.clone();
+        let prev = cursor;
         use Direction::*;
         let (val, mul) = match trace.direction {
             Right => (&mut cursor.x, 1),
@@ -14,7 +14,7 @@ pub fn follow(traces: &[Trace]) -> Vec<Line> {
             Down => (&mut cursor.y, -1),
         };
         *val += trace.distance * mul;
-        out.push(Line::new(prev, cursor.clone()));
+        out.push(Line::new(prev, cursor));
     }
     out
 }
@@ -38,10 +38,10 @@ pub fn intersect(a: &Line, b: &Line) -> Option<Point> {
 
     if s >= 0.0 && s <= 1.0 && t >= 0.0 && t <= 1.0 {
         // round the results so errors line up nicely
-        return Some(Point::new(
+        Some(Point::new(
             p0.x + (t * s1_x).round() as i32,
             p0.y + (t * s1_y).round() as i32,
-        ));
+        ))
     } else {
         None
     }
@@ -124,6 +124,11 @@ impl Point {
         Point { x, y }
     }
 
+    // on my machine, passing self by copy and reference are equally sized,
+    // and passing by copy breaks the cleanest usage of this function in Iterator::map,
+    // so I'm going to retain the reference behavior. I expect the compiler to 
+    // inline this function anyway.
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn manhattan(&self) -> i32 {
         self.x.abs() + self.y.abs()
     }

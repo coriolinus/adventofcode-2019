@@ -20,7 +20,7 @@ impl Exercise for Day03 {
         while isects.len() > 1 && isects[0].manhattan() == 0 {
             isects.remove(0);
         }
-        if isects.len() < 1 {
+        if isects.is_empty() {
             println!("no intersections");
             return;
         }
@@ -67,9 +67,7 @@ fn intersections_steps(ap: &[Line], bp: &[Line]) -> BTreeMap<i32, Point> {
             if let Some(isect) = intersect(a, b) {
                 let steps =
                     a_steps + b_steps + (isect - a.from).manhattan() + (isect - b.from).manhattan();
-                if !isects.contains_key(&steps) {
-                    isects.insert(steps, isect);
-                }
+                isects.entry(steps).or_insert(isect);
             }
             b_steps += b.manhattan_len();
         }

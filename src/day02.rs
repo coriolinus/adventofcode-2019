@@ -22,7 +22,7 @@ impl Exercise for Day02 {
         let initial_memory: IntcodeMemory =
             parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
 
-        const TARGET: Word = Word(19690720);
+        const TARGET: Word = Word(19_690_720);
 
         'stop: for noun in 0..=99 {
             for verb in 0..=99 {
