@@ -8,6 +8,7 @@ pub mod day01;
 pub mod day02;
 pub mod day03;
 pub mod day04;
+pub mod day05;
 pub mod geometry;
 pub mod intcode;
 
@@ -18,7 +19,7 @@ pub trait Exercise {
 
 pub fn dispatch(day: u8, path: &Path, part1: bool, part2: bool) {
     if !path.exists() {
-        eprintln!("input file at {} not found", path.to_string_lossy());
+        println!("input file at {} not found", path.to_string_lossy());
         return;
     }
     let exercise: Option<Box<dyn Exercise>> = match day {
@@ -26,11 +27,12 @@ pub fn dispatch(day: u8, path: &Path, part1: bool, part2: bool) {
         2 => Some(Box::new(day02::Day02 {})),
         3 => Some(Box::new(day03::Day03 {})),
         4 => Some(Box::new(day04::Day {})),
+        5 => Some(Box::new(day05::Day {})),
         _ => None,
     };
     match exercise {
         None => {
-            eprintln!("exercise {} is not available", day);
+            println!("exercise {} is not available", day);
         }
         Some(exercise) => {
             if part1 {

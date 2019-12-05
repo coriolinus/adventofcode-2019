@@ -46,6 +46,11 @@ impl TryFrom<Word> for Mode {
     }
 }
 
+pub enum Output {
+    Halt { ip: usize },
+    Output { ip: usize, val: i32 },
+}
+
 impl Word {
     /// destructure a word into its opcode and triplet of modes
     ///
@@ -88,7 +93,12 @@ impl Word {
 }
 
 // return None for a halt
-fn process(ip: usize, memory: &mut [Word]) -> Option<usize> {
+fn process(
+    ip: usize,
+    memory: &mut [Word],
+    inputs: &mut Vec<i32>,
+    outputs: &mut Vec<Output>,
+) -> Option<usize> {
     let (opcode, p1, p2, p3) = match memory[ip].destructure() {
         Ok((opcode, pc, pb, pa)) => (opcode, pc, pb, pa),
         Err(e) => {
@@ -98,18 +108,49 @@ fn process(ip: usize, memory: &mut [Word]) -> Option<usize> {
     };
     match opcode {
         1 => {
+            // add
             let out = memory[ip + 3];
             *out.value_mut(p3, memory) =
                 *memory[ip + 1].value(p1, memory) + *memory[ip + 2].value(p2, memory);
             Some(4)
         }
         2 => {
+            // mul
             let out = memory[ip + 3];
             *out.value_mut(p3, memory) =
                 *memory[ip + 1].value(p1, memory) * **memory[ip + 2].value(p2, memory);
             Some(4)
         }
-        99 => None,
+        3 => {
+            // input
+            match inputs.pop() {
+                Some(input) => {
+                    #[cfg(feature = "intcode-debug")]
+                    println!("input at ip {}: {}", ip, input);
+                    let out = memory[ip + 1];
+                    *out.value_mut(p1, memory) = input.into();
+                    Some(2)
+                }
+                None => {
+                    println!("abort: needed input at ip {} but none were available", ip);
+                    None
+                }
+            }
+        }
+        4 => {
+            // output
+            let val = **memory[ip + 1].value(p1, memory);
+            #[cfg(feature = "intcode-debug")]
+            println!("output at ip {}: {}", ip, val);
+            outputs.push(Output::Output { ip, val });
+            Some(2)
+        }
+        99 => {
+            #[cfg(feature = "intcode-debug")]
+            println!("explicit program halt at ip {}", ip);
+            outputs.push(Output::Halt { ip });
+            None
+        }
         _ => {
             println!("invalid opcode @ {}: {}", ip, opcode);
             None
@@ -118,8 +159,26 @@ fn process(ip: usize, memory: &mut [Word]) -> Option<usize> {
 }
 
 pub fn compute_intcode(memory: &mut IntcodeMemory) {
+    let zs: Vec<Word> = Vec::new();
+    compute_intcode_io(memory, zs);
+}
+
+pub fn compute_intcode_io<Iter, T>(memory: &mut IntcodeMemory, inputs: Iter) -> Vec<Output>
+where
+    Iter: IntoIterator<Item = T>,
+    T: Into<i32>,
+{
     let mut ip = 0;
-    while let Some(increment) = process(ip, memory) {
+    let mut inputs: Vec<i32> = inputs.into_iter().map(|i| i.into()).collect();
+    // we reverse the inputs so we can efficiently pop
+    inputs.reverse();
+    let mut outputs = Vec::new();
+    while let Some(increment) = process(ip, memory, &mut inputs, &mut outputs) {
         ip += increment;
     }
+    if !inputs.is_empty() {
+        inputs.reverse();
+        println!("warn: unused inputs: {:?}", inputs);
+    }
+    outputs
 }
