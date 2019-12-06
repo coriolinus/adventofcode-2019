@@ -1,5 +1,5 @@
 use crate::{parse, Exercise};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::str::FromStr;
 
@@ -13,8 +13,14 @@ impl Exercise for Day {
         println!("sum of orbits: {}", system.sum_orbits());
     }
 
-    fn part2(&self, _path: &Path) {
-        unimplemented!()
+    fn part2(&self, path: &Path) {
+        let system = System::new(parse::<OrbitRelation>(path).unwrap())
+            .expect("failed to organize the solar system");
+        if let Some(pl) = system.find_path_len("YOU", "SAN") {
+            println!("found path len {} from you to santa", pl);
+        } else {
+            println!("no path found between you and santa");
+        }
     }
 }
 
@@ -126,5 +132,42 @@ impl System {
         (0..self.bodies.len())
             .map(|idx| self.count_orbits(idx))
             .sum()
+    }
+
+    pub fn find_path_len(&self, from: &str, to: &str) -> Option<usize> {
+        let from_idx = self.name_map.get(from)?;
+        let to_idx = self.name_map.get(to)?;
+
+        // set up a breadth first search
+        let mut queue: VecDeque<(usize, usize)> = VecDeque::new();
+        queue.push_back((*from_idx, 0));
+        let mut path_lens: HashMap<usize, usize> = HashMap::with_capacity(self.bodies.len());
+
+        while let Some((idx, path_len)) = queue.pop_front() {
+            let path_len = path_len + 1;
+            if !path_lens.contains_key(&idx) {
+                path_lens.insert(idx, path_len);
+            }
+
+            // return now if we've found the complete path
+            if let Some(to_len) = path_lens.get(&to_idx) {
+                return Some(to_len - 3);
+            }
+
+            // add parent and children to the queue
+            let body = &self.bodies[idx];
+            if let Some(parent) = body.parent {
+                if !path_lens.contains_key(&parent) {
+                    queue.push_back((parent, path_len));
+                }
+            }
+            for child in body.children.iter() {
+                if !path_lens.contains_key(child) {
+                    queue.push_back((*child, path_len));
+                }
+            }
+        }
+
+        None
     }
 }
