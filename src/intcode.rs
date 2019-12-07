@@ -1,6 +1,7 @@
 use crossbeam_channel::{Receiver, Sender};
 use derive_more::*;
 use std::convert::TryFrom;
+use std::thread;
 
 #[derive(
     Add,
@@ -100,6 +101,7 @@ fn process(
     memory: &mut [Word],
     inputs: &Receiver<i32>,
     outputs: &Sender<Output>,
+    halts: &Sender<()>,
 ) -> Option<i32> {
     let (opcode, p1, p2, p3) = match memory[ip].destructure() {
         Ok((opcode, pc, pb, pa)) => (opcode, pc, pb, pa),
@@ -147,7 +149,7 @@ fn process(
             let val = **memory[ip + 1].value(p1, memory);
             #[cfg(feature = "intcode-debug")]
             println!("output at ip {}: {}", ip, val);
-            let _ = outputs.send(Output::Output { ip, val });
+            outputs.send(Output::Output { ip, val }).unwrap();
             Some(2)
         }
         5 => {
@@ -203,7 +205,15 @@ fn process(
         99 => {
             #[cfg(feature = "intcode-debug")]
             println!("explicit program halt at ip {}", ip);
-            let _ = outputs.send(Output::Halt { ip });
+            outputs.send(Output::Halt { ip }).unwrap();
+            // TODO: this is kind of hacky; we should at some point split the
+            // Output enum into two distinct structs, and send outputs and
+            // halts on their distinct channels. This will simplify the
+            // compute_intcode_ioch pretty well, because it will halve the
+            // number of threads required.
+            //
+            // Not today, though; too busy.
+            halts.send(()).unwrap();
             None
         }
         _ => {
@@ -225,12 +235,15 @@ where
 {
     let (inputs_sender, inputs_receiver) = crossbeam_channel::unbounded();
     for i in inputs.into_iter() {
-        let _ = inputs_sender.send(i.into());
+        inputs_sender.send(i.into()).unwrap();
     }
     let (outputs_sender, outputs_receiver) = crossbeam_channel::unbounded();
+    let (halts_sender, _) = crossbeam_channel::unbounded();
 
     let mut ip = 0;
-    while let Some(increment) = process(ip, memory, &inputs_receiver, &outputs_sender) {
+    while let Some(increment) =
+        process(ip, memory, &inputs_receiver, &outputs_sender, &halts_sender)
+    {
         ip = (ip as i32 + increment) as usize;
     }
 
@@ -246,4 +259,30 @@ where
         );
     }
     outputs_receiver.into_iter().collect::<Vec<_>>()
+}
+
+pub fn compute_intcode_ioch(
+    memory: &mut IntcodeMemory,
+    inputs: crossbeam_channel::Receiver<i32>,
+    outputs: crossbeam_channel::Sender<i32>,
+    halts: crossbeam_channel::Sender<()>,
+) {
+    // this is mostly straightforward, but we do need an inner thread and a
+    // separate channel pair to unwrap the Output type which it returns by
+    // default and send it into the outputs channel.
+    let (inner_output_sender, inner_output_receiver) = crossbeam_channel::unbounded();
+    thread::spawn(move || {
+        while let Ok(op) = inner_output_receiver.recv() {
+            if let Output::Output { val, .. } = op {
+                outputs.send(val).unwrap();
+            }
+        }
+    });
+
+    // we don't bother spawning a thread here because we don't want to
+    // too eagerly anticipate the needs of the consumer.
+    let mut ip = 0;
+    while let Some(increment) = process(ip, memory, &inputs, &inner_output_sender, &halts) {
+        ip = (ip as i32 + increment) as usize;
+    }
 }
