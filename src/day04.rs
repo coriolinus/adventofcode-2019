@@ -311,8 +311,8 @@ mod tests {
 
     #[test]
     fn test_no_3_runs_examples() {
-        assert!(no_3_runs(&112233));
-        assert!(!no_3_runs(&123444));
-        assert!(no_3_runs(&111122));
+        assert!(no_3_runs(112233));
+        assert!(!no_3_runs(123444));
+        assert!(no_3_runs(111122));
     }
 }
