@@ -1,3 +1,4 @@
+use crossbeam_channel::{Receiver, Sender};
 use derive_more::*;
 use std::convert::TryFrom;
 
@@ -97,8 +98,8 @@ impl Word {
 fn process(
     ip: usize,
     memory: &mut [Word],
-    inputs: &mut Vec<i32>,
-    outputs: &mut Vec<Output>,
+    inputs: &Receiver<i32>,
+    outputs: &Sender<Output>,
 ) -> Option<i32> {
     let (opcode, p1, p2, p3) = match memory[ip].destructure() {
         Ok((opcode, pc, pb, pa)) => (opcode, pc, pb, pa),
@@ -124,16 +125,19 @@ fn process(
         }
         3 => {
             // input
-            match inputs.pop() {
-                Some(input) => {
+            match inputs.recv_timeout(std::time::Duration::new(1, 0)) {
+                Ok(input) => {
                     #[cfg(feature = "intcode-debug")]
                     println!("input at ip {}: {}", ip, input);
                     let out = memory[ip + 1];
                     *out.value_mut(p1, memory) = input.into();
                     Some(2)
                 }
-                None => {
-                    println!("abort: needed input at ip {} but none were available", ip);
+                Err(recv_err) => {
+                    println!(
+                        "abort: needed input at ip {} but errored with {}",
+                        ip, recv_err
+                    );
                     None
                 }
             }
@@ -143,7 +147,7 @@ fn process(
             let val = **memory[ip + 1].value(p1, memory);
             #[cfg(feature = "intcode-debug")]
             println!("output at ip {}: {}", ip, val);
-            outputs.push(Output::Output { ip, val });
+            let _ = outputs.send(Output::Output { ip, val });
             Some(2)
         }
         5 => {
@@ -199,7 +203,7 @@ fn process(
         99 => {
             #[cfg(feature = "intcode-debug")]
             println!("explicit program halt at ip {}", ip);
-            outputs.push(Output::Halt { ip });
+            let _ = outputs.send(Output::Halt { ip });
             None
         }
         _ => {
@@ -219,17 +223,27 @@ where
     Iter: IntoIterator<Item = T>,
     T: Into<i32>,
 {
+    let (inputs_sender, inputs_receiver) = crossbeam_channel::unbounded();
+    for i in inputs.into_iter() {
+        let _ = inputs_sender.send(i.into());
+    }
+    let (outputs_sender, outputs_receiver) = crossbeam_channel::unbounded();
+
     let mut ip = 0;
-    let mut inputs: Vec<i32> = inputs.into_iter().map(|i| i.into()).collect();
-    // we reverse the inputs so we can efficiently pop
-    inputs.reverse();
-    let mut outputs = Vec::new();
-    while let Some(increment) = process(ip, memory, &mut inputs, &mut outputs) {
+    while let Some(increment) = process(ip, memory, &inputs_receiver, &outputs_sender) {
         ip = (ip as i32 + increment) as usize;
     }
-    if !inputs.is_empty() {
-        inputs.reverse();
-        println!("warn: unused inputs: {:?}", inputs);
+
+    // drop the senders; we know they're not needed anymore, and this allows
+    // the receivers' iterators to complete
+    std::mem::drop(inputs_sender);
+    std::mem::drop(outputs_sender);
+
+    if !inputs_receiver.is_empty() {
+        println!(
+            "warn: unused inputs: {:?}",
+            inputs_receiver.into_iter().collect::<Vec<_>>()
+        );
     }
-    outputs
+    outputs_receiver.into_iter().collect::<Vec<_>>()
 }

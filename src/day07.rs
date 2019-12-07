@@ -9,7 +9,7 @@ pub struct Day;
 impl Exercise for Day {
     fn part1(&self, path: &Path) {
         let memory: IntcodeMemory = parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
-        match find_optimal_phases(&memory) {
+        match find_optimal_phases(&memory, (0..=4).collect()) {
             None => println!("no optimal phase found?!"),
             Some((phases, signal)) => {
                 println!("signal {} found from phases {:?}", signal, phases);
@@ -18,7 +18,13 @@ impl Exercise for Day {
     }
 
     fn part2(&self, path: &Path) {
-        let _memory: IntcodeMemory = parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
+        let memory: IntcodeMemory = parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
+        match find_optimal_phases(&memory, (5..=9).collect()) {
+            None => println!("no optimal phase found?!"),
+            Some((phases, signal)) => {
+                println!("signal {} found from phases {:?}", signal, phases);
+            }
+        }
     }
 }
 
@@ -35,23 +41,21 @@ fn compute_amplifier_stack(memory: &IntcodeMemory, phases: &[i32]) -> i32 {
 
         {
             use self::Output::*;
-            signal = match &output[0] {
-                &Halt { .. } => panic!(
+            signal = match output[0] {
+                Halt { .. } => panic!(
                     "unexpected halt for idx={} phase={} phases={:?}",
                     idx, phase, phases
                 ),
-                &Output { val, .. } => val,
+                Output { val, .. } => val,
             };
         }
     }
     signal
 }
 
-fn find_optimal_phases(memory: &IntcodeMemory) -> Option<(Vec<i32>, i32)> {
+fn find_optimal_phases(memory: &IntcodeMemory, mut phases: Vec<i32>) -> Option<(Vec<i32>, i32)> {
     let mut max_signal = None;
     let mut max_phases = None;
-
-    let mut phases: Vec<i32> = (0..=4).collect();
 
     permutohedron::heap_recursive(&mut phases, |phases| {
         let signal = compute_amplifier_stack(memory, phases);
