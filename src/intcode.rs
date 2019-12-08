@@ -182,7 +182,11 @@ impl Intcode {
             #[cfg(feature = "intcode-debug")]
             println!("ip overran memory at {}", self.ip);
             if let Some(halts) = &self.halts {
-                halts.send(self.ip).unwrap();
+                if let Err(err) = halts.send(self.ip) {
+                    if cfg!(feature = "intcode-debug") {
+                        println!("err sending halt: {}", err);
+                    }
+                };
             }
             return Err(format!("ip overran memory at {}", self.ip));
         }
@@ -232,7 +236,11 @@ impl Intcode {
                     ));
                 }
                 if let Some(oips) = &self.output_ips {
-                    oips.send(self.ip).unwrap();
+                    if let Err(err) = oips.send(self.ip) {
+                        if cfg!(feature = "intcode-debug") {
+                            println!("err sending oip: {}", err);
+                        }
+                    }
                 }
                 self.ip += 2;
             }
@@ -257,7 +265,11 @@ impl Intcode {
                 println!("program halt at ip {}", self.ip);
                 self.halted = true;
                 if let Some(halts) = &self.halts {
-                    halts.send(self.ip).unwrap();
+                    if let Err(err) = halts.send(self.ip) {
+                        if cfg!(feature = "intcode-debug") {
+                            println!("err sending halt: {}", err);
+                        }
+                    }
                 }
             }
             _ => {
