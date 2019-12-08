@@ -281,6 +281,13 @@ impl Intcode {
         let (sender, receiver) = channel();
         self.outputs = Some(sender);
         self.run()?;
+        // now we have to drop the sender so that we can collect the results
+        // of the receiver. For this to work, we have to replace it with a
+        // None value, then manually drop it.
+        let sender = std::mem::replace(&mut self.outputs, None);
+        std::mem::drop(sender);
+        #[cfg(feature = "intcode-debug")]
+        println!("dropped sender in run_collect");
         Ok(receiver.into_iter().collect())
     }
 }
