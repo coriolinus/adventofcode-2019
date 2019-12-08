@@ -1,8 +1,8 @@
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{unbounded as channel, Receiver, Sender};
 use derive_more::*;
 use std::convert::TryFrom;
-use std::thread;
 
+pub type WordInner = i32;
 #[derive(
     Add,
     AddAssign,
@@ -26,7 +26,14 @@ use std::thread;
     Rem,
     Sum,
 )]
-pub struct Word(pub i32);
+pub struct Word(pub WordInner);
+
+impl From<&Word> for Word {
+    fn from(w: &Word) -> Word {
+        *w
+    }
+}
+
 pub type IntcodeMemory = Vec<Word>;
 pub type Opcode = u8;
 
@@ -46,12 +53,6 @@ impl TryFrom<Word> for Mode {
             _ => Err(format!("unrecognized mode: {}", value)),
         }
     }
-}
-
-#[derive(Debug)]
-pub enum Output {
-    Halt { ip: usize },
-    Output { ip: usize, val: i32 },
 }
 
 impl Word {
@@ -78,211 +79,245 @@ impl Word {
         }
     }
 
-    pub fn value<'a>(&'a self, mode: Mode, memory: &'a [Word]) -> &'a Word {
+    fn value<'a>(&'a self, mode: Mode, memory: &'a [Word]) -> WordInner {
         use Mode::*;
         match mode {
-            Position => &memory[self.0 as usize],
-            Immediate => &self,
+            Position => memory[self.0 as usize].0,
+            Immediate => self.0,
         }
     }
 
-    pub fn value_mut<'a>(&self, mode: Mode, memory: &'a mut [Word]) -> &'a mut Word {
+    fn value_mut<'a>(&self, mode: Mode, memory: &'a mut [Word]) -> &'a mut WordInner {
         use Mode::*;
         match mode {
-            Position => &mut memory[self.0 as usize],
+            Position => &mut memory[self.0 as usize].0,
             Immediate => panic!("attempt to mutate an immediate value"),
         }
     }
 }
 
-// return None for a halt
-fn process(
+#[derive(Debug, Default)]
+pub struct Intcode {
     ip: usize,
-    memory: &mut [Word],
-    inputs: &Receiver<i32>,
-    outputs: &Sender<Output>,
-    halts: &Sender<()>,
-) -> Option<i32> {
-    let (opcode, p1, p2, p3) = match memory[ip].destructure() {
-        Ok((opcode, pc, pb, pa)) => (opcode, pc, pb, pa),
-        Err(e) => {
-            println!("{}", e);
-            return None;
-        }
-    };
-    match opcode {
-        1 => {
-            // add
-            let out = memory[ip + 3];
-            *out.value_mut(p3, memory) =
-                *memory[ip + 1].value(p1, memory) + *memory[ip + 2].value(p2, memory);
-            Some(4)
-        }
-        2 => {
-            // mul
-            let out = memory[ip + 3];
-            *out.value_mut(p3, memory) =
-                *memory[ip + 1].value(p1, memory) * **memory[ip + 2].value(p2, memory);
-            Some(4)
-        }
-        3 => {
-            // input
-            match inputs.recv_timeout(std::time::Duration::new(1, 0)) {
-                Ok(input) => {
-                    #[cfg(feature = "intcode-debug")]
-                    println!("input at ip {}: {}", ip, input);
-                    let out = memory[ip + 1];
-                    *out.value_mut(p1, memory) = input.into();
-                    Some(2)
-                }
-                Err(recv_err) => {
-                    println!(
-                        "abort: needed input at ip {} but errored with {}",
-                        ip, recv_err
-                    );
-                    None
-                }
-            }
-        }
-        4 => {
-            // output
-            let val = **memory[ip + 1].value(p1, memory);
-            #[cfg(feature = "intcode-debug")]
-            println!("output at ip {}: {}", ip, val);
-            outputs.send(Output::Output { ip, val }).unwrap();
-            Some(2)
-        }
-        5 => {
-            // jump if true
-            let test = **memory[ip + 1].value(p1, memory);
-            let ipval = **memory[ip + 2].value(p2, memory);
-            let ipdiff = ipval - ip as i32;
-            #[cfg(feature = "intcode-debug")]
-            dbg!("jump-if-true", ip, test, ipval, ipdiff);
-            if test != 0 {
-                Some(ipdiff)
-            } else {
-                Some(3)
-            }
-        }
-        6 => {
-            // jump if false
-            let test = **memory[ip + 1].value(p1, memory);
-            let ipval = **memory[ip + 2].value(p2, memory);
-            let ipdiff = ipval - ip as i32;
-            #[cfg(feature = "intcode-debug")]
-            dbg!("jump-if-false", ip, test, ipval, ipdiff);
-            if test == 0 {
-                Some(ipdiff)
-            } else {
-                Some(3)
-            }
-        }
-        7 => {
-            // less than
-            let out = memory[ip + 3];
-            *out.value_mut(p3, memory) =
-                if **memory[ip + 1].value(p1, memory) < **memory[ip + 2].value(p2, memory) {
-                    1
-                } else {
-                    0
-                }
-                .into();
-            Some(4)
-        }
-        8 => {
-            // equals
-            let out = memory[ip + 3];
-            *out.value_mut(p3, memory) =
-                if **memory[ip + 1].value(p1, memory) == **memory[ip + 2].value(p2, memory) {
-                    1
-                } else {
-                    0
-                }
-                .into();
-            Some(4)
-        }
-        99 => {
-            #[cfg(feature = "intcode-debug")]
-            println!("explicit program halt at ip {}", ip);
-            outputs.send(Output::Halt { ip }).unwrap();
-            // TODO: this is kind of hacky; we should at some point split the
-            // Output enum into two distinct structs, and send outputs and
-            // halts on their distinct channels. This will simplify the
-            // compute_intcode_ioch pretty well, because it will halve the
-            // number of threads required.
-            //
-            // Not today, though; too busy.
-            halts.send(()).unwrap();
-            None
-        }
-        _ => {
-            println!("invalid opcode @ {}: {}", ip, opcode);
-            None
-        }
-    }
+    memory: IntcodeMemory,
+    halted: bool,
+    inputs: Option<Receiver<WordInner>>,
+    outputs: Option<Sender<WordInner>>,
+    output_ips: Option<Sender<usize>>,
+    halts: Option<Sender<usize>>,
 }
 
-pub fn compute_intcode(memory: &mut IntcodeMemory) {
-    let zs: Vec<Word> = Vec::new();
-    compute_intcode_io(memory, zs);
-}
-
-pub fn compute_intcode_io<Iter, T>(memory: &mut IntcodeMemory, inputs: Iter) -> Vec<Output>
-where
-    Iter: IntoIterator<Item = T>,
-    T: Into<i32>,
-{
-    let (inputs_sender, inputs_receiver) = crossbeam_channel::unbounded();
-    for i in inputs.into_iter() {
-        inputs_sender.send(i.into()).unwrap();
-    }
-    let (outputs_sender, outputs_receiver) = crossbeam_channel::unbounded();
-    let (halts_sender, _) = crossbeam_channel::unbounded();
-
-    let mut ip = 0;
-    while let Some(increment) =
-        process(ip, memory, &inputs_receiver, &outputs_sender, &halts_sender)
+impl Intcode {
+    pub fn new<Iter>(memory: Iter) -> Intcode
+    where
+        Iter: IntoIterator,
+        Word: From<Iter::Item>,
     {
-        ip = (ip as i32 + increment) as usize;
+        Intcode {
+            memory: memory.into_iter().map(Word::from).collect(),
+            ..Intcode::default()
+        }
     }
 
-    // drop the senders; we know they're not needed anymore, and this allows
-    // the receivers' iterators to complete
-    std::mem::drop(inputs_sender);
-    std::mem::drop(outputs_sender);
-
-    if !inputs_receiver.is_empty() {
-        println!(
-            "warn: unused inputs: {:?}",
-            inputs_receiver.into_iter().collect::<Vec<_>>()
-        );
+    pub fn with_inputs(mut self, inputs: Receiver<WordInner>) -> Self {
+        self.inputs = Some(inputs);
+        self
     }
-    outputs_receiver.into_iter().collect::<Vec<_>>()
+
+    pub fn with_outputs(mut self, outputs: Sender<WordInner>) -> Self {
+        self.outputs = Some(outputs);
+        self
+    }
+
+    /// sends the instruction pointer location for any output
+    pub fn with_output_ips(mut self, output_ips: Sender<usize>) -> Self {
+        self.output_ips = Some(output_ips);
+        self
+    }
+
+    /// sends the instruction pointer location for any halt
+    pub fn with_halts(mut self, halts: Sender<usize>) -> Self {
+        self.halts = Some(halts);
+        self
+    }
+
+    // convenience fn to initialize with static inputs
+    pub fn using_inputs(self, inputs: &[WordInner]) -> Self {
+        let (sender, receiver) = channel();
+        for input in inputs {
+            sender.send(*input).unwrap();
+        }
+        self.with_inputs(receiver)
+    }
+
+    fn apply3<F>(&mut self, p1: Mode, p2: Mode, p3: Mode, operation: F)
+    where
+        F: FnOnce(WordInner, WordInner) -> WordInner,
+    {
+        let p1v = self.memory[self.ip + 1].value(p1, &self.memory);
+        let p2v = self.memory[self.ip + 2].value(p2, &self.memory);
+        let out = self.memory[self.ip + 3];
+        *out.value_mut(p3, &mut self.memory) = operation(p1v, p2v);
+        self.ip += 4;
+    }
+
+    fn jumpif<F>(&mut self, p1: Mode, p2: Mode, condition: F)
+    where
+        F: FnOnce(WordInner) -> bool,
+    {
+        // jump if condition is true
+        let test = self.memory[self.ip + 1].value(p1, &self.memory);
+        let ipval = self.memory[self.ip + 2].value(p2, &self.memory);
+        #[cfg(feature = "intcode-debug")]
+        dbg!("jump-if", self.ip, test, ipval);
+        if condition(test) {
+            self.ip = ipval as usize;
+        } else {
+            self.ip += 3;
+        }
+    }
+
+    fn tick(&mut self) -> Result<bool, String> {
+        if self.ip >= self.memory.len() {
+            #[cfg(feature = "intcode-debug")]
+            println!("ip overran memory at {}", self.ip);
+            if let Some(halts) = &self.halts {
+                if let Err(err) = halts.send(self.ip) {
+                    if cfg!(feature = "intcode-debug") {
+                        println!("err sending halt: {}", err);
+                    }
+                };
+            }
+            return Err(format!("ip overran memory at {}", self.ip));
+        }
+        if self.halted {
+            return Ok(false);
+        }
+        let (opcode, p1, p2, p3) = self.memory[self.ip].destructure()?;
+        match opcode {
+            1 => {
+                // add
+                self.apply3(p1, p2, p3, |a, b| a + b);
+            }
+            2 => {
+                // mul
+                self.apply3(p1, p2, p3, |a, b| a * b);
+            }
+            3 => {
+                // input
+                if let Some(inputs) = &self.inputs {
+                    let input = inputs
+                        .recv_timeout(std::time::Duration::new(1, 0))
+                        .map_err(|err| {
+                            self.halted = true;
+                            format!("abort: needed input at ip {} but errored: {}", self.ip, err)
+                        })?;
+                    #[cfg(feature = "intcode-debug")]
+                    println!("input at ip {}: {}", self.ip, input);
+                    let out = self.memory[self.ip + 1];
+                    *out.value_mut(p1, &mut self.memory) = input.into();
+                    self.ip += 2;
+                } else {
+                    return Err(format!("input at {} but no input stream set", self.ip));
+                }
+            }
+            4 => {
+                // output
+                let val = self.memory[self.ip + 1].value(p1, &self.memory);
+                #[cfg(feature = "intcode-debug")]
+                println!("output at ip {}: {}", self.ip, val);
+                if let Some(outputs) = &self.outputs {
+                    outputs.send(val).unwrap();
+                } else {
+                    self.halted = true;
+                    return Err(format!(
+                        "output at {} ({}) but no output stream set",
+                        self.ip, val
+                    ));
+                }
+                if let Some(oips) = &self.output_ips {
+                    if let Err(err) = oips.send(self.ip) {
+                        if cfg!(feature = "intcode-debug") {
+                            println!("err sending oip: {}", err);
+                        }
+                    }
+                }
+                self.ip += 2;
+            }
+            5 => {
+                // jump if true
+                self.jumpif(p1, p2, |test| test != 0);
+            }
+            6 => {
+                // jump if false
+                self.jumpif(p1, p2, |test| test == 0);
+            }
+            7 => {
+                // less than
+                self.apply3(p1, p2, p3, |a, b| if a < b { 1 } else { 0 });
+            }
+            8 => {
+                // equals
+                self.apply3(p1, p2, p3, |a, b| if a == b { 1 } else { 0 });
+            }
+            99 => {
+                #[cfg(feature = "intcode-debug")]
+                println!("program halt at ip {}", self.ip);
+                self.halted = true;
+                if let Some(halts) = &self.halts {
+                    if let Err(err) = halts.send(self.ip) {
+                        if cfg!(feature = "intcode-debug") {
+                            println!("err sending halt: {}", err);
+                        }
+                    }
+                }
+            }
+            _ => {
+                return Err(format!("invalid opcode @ {}: {}", self.ip, opcode));
+            }
+        }
+        Ok(true)
+    }
+
+    // run this computer until program completion
+    pub fn run(&mut self) -> Result<(), String> {
+        while self.tick()? {}
+        #[cfg(feature = "intcode-debug")]
+        println!("intcode run complete");
+        Ok(())
+    }
+
+    // run this computer into program completion,
+    // collecting the outputs into a vector
+    pub fn run_collect(&mut self) -> Result<Vec<WordInner>, String> {
+        let (sender, receiver) = channel();
+        self.outputs = Some(sender);
+        self.run()?;
+        // now we have to drop the sender so that we can collect the results
+        // of the receiver. For this to work, we have to replace it with a
+        // None value, then manually drop it.
+        let sender = std::mem::replace(&mut self.outputs, None);
+        std::mem::drop(sender);
+        #[cfg(feature = "intcode-debug")]
+        println!("dropped sender in run_collect");
+        Ok(receiver.into_iter().collect())
+    }
+}
+
+pub fn compute_intcode(memory: &IntcodeMemory) {
+    Intcode::new(memory.iter()).run().unwrap();
 }
 
 pub fn compute_intcode_ioch(
-    memory: &mut IntcodeMemory,
-    inputs: crossbeam_channel::Receiver<i32>,
-    outputs: crossbeam_channel::Sender<i32>,
-    halts: crossbeam_channel::Sender<()>,
-) {
-    // this is mostly straightforward, but we do need an inner thread and a
-    // separate channel pair to unwrap the Output type which it returns by
-    // default and send it into the outputs channel.
-    let (inner_output_sender, inner_output_receiver) = crossbeam_channel::unbounded();
-    thread::spawn(move || {
-        while let Ok(op) = inner_output_receiver.recv() {
-            if let Output::Output { val, .. } = op {
-                outputs.send(val).unwrap();
-            }
-        }
-    });
+    memory: &IntcodeMemory,
+    inputs: Receiver<WordInner>,
+    outputs: Sender<WordInner>,
+    halts: Sender<usize>,
+) -> Result<(), String> {
+    let mut computer = Intcode::new(memory.iter())
+        .with_inputs(inputs)
+        .with_outputs(outputs)
+        .with_halts(halts);
 
-    // we don't bother spawning a thread here because we don't want to
-    // too eagerly anticipate the needs of the consumer.
-    let mut ip = 0;
-    while let Some(increment) = process(ip, memory, &inputs, &inner_output_sender, &halts) {
-        ip = (ip as i32 + increment) as usize;
-    }
+    computer.run()
 }
