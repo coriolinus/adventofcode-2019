@@ -42,7 +42,36 @@ impl Exercise for Day {
         }
     }
 
-    fn part2(&self, _path: &Path) {}
+    fn part2(&self, path: &Path) {
+        let images: Vec<SpaceImageFormat> = parse::<SpaceImageFormat>(path).unwrap().collect();
+        for (iidx, image) in images.iter().enumerate() {
+            let mut render = [[0_u8; WIDTH]; HEIGHT];
+            for row in 0..HEIGHT {
+                for col in 0..WIDTH {
+                    for layer in 0..(image.layers.len()) {
+                        if image.layers[layer][row][col] != 2 {
+                            render[row][col] = image.layers[layer][row][col];
+                            break;
+                        }
+                    }
+                }
+            }
+            println!("image {}:", iidx);
+            for row in &render {
+                for col in row {
+                    print!(
+                        "{}",
+                        match col {
+                            0 => " ",
+                            1 => "*",
+                            _ => "?",
+                        }
+                    );
+                }
+                println!();
+            }
+        }
+    }
 }
 
 pub type Layer = [[u8; WIDTH]; HEIGHT];
