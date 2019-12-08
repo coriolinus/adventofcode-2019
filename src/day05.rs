@@ -1,5 +1,5 @@
 use crate::{
-    intcode::{compute_intcode_io, IntcodeMemory, Output, Word},
+    intcode::{Intcode, IntcodeMemory, Word},
     parse, CommaSep, Exercise,
 };
 use std::path::Path;
@@ -8,48 +8,84 @@ pub struct Day;
 
 impl Exercise for Day {
     fn part1(&self, path: &Path) {
-        let mut memory: IntcodeMemory = parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
-        let outputs = compute_intcode_io(&mut memory, [1].iter().cloned());
-        get_diagnostic(&outputs);
+        let memory: IntcodeMemory = parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
+        let (halt_sender, halt_receiver) = crossbeam_channel::unbounded();
+        let (oip_sender, oip_receiver) = crossbeam_channel::unbounded();
+
+        let mut computer = Intcode::new(memory.iter())
+            .using_inputs(&[1])
+            .with_halts(halt_sender)
+            .with_output_ips(oip_sender);
+
+        let outputs = computer.run_collect().unwrap();
+        std::mem::drop(computer); // so iters complete
+        let halts = halt_receiver.into_iter().collect::<Vec<_>>();
+        let oips = oip_receiver.into_iter().collect::<Vec<_>>();
+
+        get_diagnostic(&outputs, &oips, &halts);
     }
 
     fn part2(&self, path: &Path) {
-        let mut memory: IntcodeMemory = parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
-        let outputs = compute_intcode_io(&mut memory, [5].iter().cloned());
-        get_diagnostic(&outputs);
+        let memory: IntcodeMemory = parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
+        let (halt_sender, halt_receiver) = crossbeam_channel::unbounded();
+        let (oip_sender, oip_receiver) = crossbeam_channel::unbounded();
+
+        let mut computer = Intcode::new(memory.iter())
+            .using_inputs(&[5])
+            .with_halts(halt_sender)
+            .with_output_ips(oip_sender);
+
+        let outputs = computer.run_collect().unwrap();
+        std::mem::drop(computer); // so iters complete
+        let halts = halt_receiver.into_iter().collect::<Vec<_>>();
+        let oips = oip_receiver.into_iter().collect::<Vec<_>>();
+
+        get_diagnostic(&outputs, &oips, &halts);
     }
 }
 
-fn get_diagnostic(outputs: &[Output]) {
-    let mut diagnostic = None;
-    for o in outputs {
-        match o {
-            Output::Output { val, .. } if *val == 0 => continue,
-            Output::Output { .. } if diagnostic.is_none() => diagnostic = Some(o),
-            Output::Output { ip, val } => {
-                println!("warn: non-0 output after diagnostic already set");
-                println!(" ip: {}; val: {}", ip, val);
-            }
-            Output::Halt { ip } => {
-                let hip = ip;
-                match diagnostic {
-                    None => {
-                        println!("halt without output");
-                        break;
-                    }
-                    Some(Output::Output { ip, val }) => {
-                        let oip = ip;
-                        if *hip == oip + 2 {
-                            println!("diagnostic code: {}", val);
-                            break;
-                        } else {
-                            println!("diagnostic did not immediately precede halt!");
-                            println!(" oip: {}; hip: {}; val: {}", oip, hip, val);
-                        }
-                    }
-                    other => println!("malformed diagnostic: {:?}", other),
-                }
-            }
+fn get_diagnostic(outputs: &[i32], oips: &[usize], halts: &[usize]) {
+    if halts.is_empty() {
+        println!("need a halt; got none");
+        return;
+    }
+    if halts.len() > 1 {
+        println!("warn: need 1 halt; got {}", halts.len());
+    }
+    if outputs.is_empty() {
+        println!("need at least 1 output; got none");
+        return;
+    }
+    if oips.is_empty() {
+        println!("need at least 1 output ip; got none");
+        return;
+    }
+    if outputs.len() != oips.len() {
+        println!(
+            "qty outputs ({}) didn't match qty oips ({})",
+            outputs.len(),
+            oips.len()
+        );
+        return;
+    }
+
+    // check diagnostics
+    for (idx, (output, oip)) in outputs.iter().zip(oips).enumerate() {
+        if *output == 0 && idx < outputs.len() - 1 {
+            // diagnostic ok
+            continue;
+        }
+        if idx != outputs.len() - 1 {
+            println!(
+                "warn: diagnostic at ip {} failed with code {}",
+                *oip, *output
+            );
         }
     }
+
+    if halts[0] != oips[oips.len() - 1] + 2 {
+        println!("warn: final halt not immediately preceded by final output");
+    }
+
+    println!("diagnostic code: {}", outputs[outputs.len() - 1]);
 }
