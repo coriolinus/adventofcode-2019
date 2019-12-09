@@ -14,7 +14,7 @@ impl Exercise for Day02 {
         memory[1] = 12.into();
         memory[2] = 2.into();
 
-        compute_intcode(&mut memory);
+        memory = compute_intcode(memory);
         println!("value at ip 0: {}", memory[0]);
     }
 
@@ -22,14 +22,14 @@ impl Exercise for Day02 {
         let initial_memory: IntcodeMemory =
             parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
 
-        const TARGET: Word = Word(19_690_720);
+        const TARGET: Word = 19_690_720;
 
         'stop: for noun in 0..=99 {
             for verb in 0..=99 {
                 let mut memory = initial_memory.clone();
                 memory[1] = noun.into();
                 memory[2] = verb.into();
-                compute_intcode(&mut memory);
+                memory = compute_intcode(memory);
                 if memory[0] == TARGET {
                     println!("100 * noun + verb: {}", (100 * noun) + verb);
                     break 'stop;

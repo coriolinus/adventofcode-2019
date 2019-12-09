@@ -64,7 +64,7 @@ fn compute_amplifier_stack(memory: &IntcodeMemory, phases: &[i32]) -> i32 {
         let prc = prev_receiver.clone();
         let sc = sender.clone();
         let hsc = halts_send.clone();
-        thread::spawn(move || compute_intcode_ioch(&mc, prc, sc, hsc));
+        thread::spawn(move || compute_intcode_ioch(mc, prc, sc, hsc));
 
         // now we can properly wrap around by forwarding messages
         // (only for part 2)

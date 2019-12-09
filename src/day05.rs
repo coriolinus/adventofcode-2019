@@ -12,7 +12,7 @@ impl Exercise for Day {
         let (halt_sender, halt_receiver) = crossbeam_channel::unbounded();
         let (oip_sender, oip_receiver) = crossbeam_channel::unbounded();
 
-        let mut computer = Intcode::new(memory.iter())
+        let mut computer = Intcode::new(memory)
             .using_inputs(&[1])
             .with_halts(halt_sender)
             .with_output_ips(oip_sender);
@@ -30,7 +30,7 @@ impl Exercise for Day {
         let (halt_sender, halt_receiver) = crossbeam_channel::unbounded();
         let (oip_sender, oip_receiver) = crossbeam_channel::unbounded();
 
-        let mut computer = Intcode::new(memory.iter())
+        let mut computer = Intcode::new(memory)
             .using_inputs(&[5])
             .with_halts(halt_sender)
             .with_output_ips(oip_sender);

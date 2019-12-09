@@ -2,38 +2,7 @@ use crossbeam_channel::{unbounded as channel, Receiver, Sender};
 use derive_more::*;
 use std::convert::TryFrom;
 
-pub type WordInner = i32;
-#[derive(
-    Add,
-    AddAssign,
-    Clone,
-    Copy,
-    Debug,
-    Deref,
-    Display,
-    Div,
-    DivAssign,
-    Eq,
-    From,
-    FromStr,
-    Into,
-    Mul,
-    MulAssign,
-    Not,
-    Ord,
-    PartialEq,
-    PartialOrd,
-    Rem,
-    Sum,
-)]
-pub struct Word(pub WordInner);
-
-impl From<&Word> for Word {
-    fn from(w: &Word) -> Word {
-        *w
-    }
-}
-
+pub type Word = i32;
 pub type IntcodeMemory = Vec<Word>;
 pub type Opcode = u8;
 
@@ -41,57 +10,18 @@ pub type Opcode = u8;
 pub enum Mode {
     Position,
     Immediate,
+    Relative,
 }
 
 impl TryFrom<Word> for Mode {
     type Error = String;
 
     fn try_from(value: Word) -> Result<Self, Self::Error> {
-        match *value {
+        match value {
             0 => Ok(Mode::Position),
             1 => Ok(Mode::Immediate),
+            2 => Ok(Mode::Relative),
             _ => Err(format!("unrecognized mode: {}", value)),
-        }
-    }
-}
-
-impl Word {
-    /// destructure a word into its opcode and triplet of modes
-    ///
-    /// output tuple is (opcode, param1, param2, param3) to line up with the position
-    /// of the parameters.
-    pub fn destructure(mut self: Word) -> Result<(Opcode, Mode, Mode, Mode), String> {
-        let opcode = *(self % 100) as Opcode;
-        self /= 100;
-        let pc = Mode::try_from(self % 10)?;
-        self /= 10;
-        let pb = Mode::try_from(self % 10)?;
-        self /= 10;
-        let pa = Mode::try_from(self % 10)?;
-        self /= 10;
-        if *self == 0 {
-            Ok((opcode, pc, pb, pa))
-        } else {
-            Err(format!(
-                "could not destructure word as opcode: extra digits: {}",
-                self
-            ))
-        }
-    }
-
-    fn value<'a>(&'a self, mode: Mode, memory: &'a [Word]) -> WordInner {
-        use Mode::*;
-        match mode {
-            Position => memory[self.0 as usize].0,
-            Immediate => self.0,
-        }
-    }
-
-    fn value_mut<'a>(&self, mode: Mode, memory: &'a mut [Word]) -> &'a mut WordInner {
-        use Mode::*;
-        match mode {
-            Position => &mut memory[self.0 as usize].0,
-            Immediate => panic!("attempt to mutate an immediate value"),
         }
     }
 }
@@ -101,30 +31,26 @@ pub struct Intcode {
     ip: usize,
     memory: IntcodeMemory,
     halted: bool,
-    inputs: Option<Receiver<WordInner>>,
-    outputs: Option<Sender<WordInner>>,
+    inputs: Option<Receiver<Word>>,
+    outputs: Option<Sender<Word>>,
     output_ips: Option<Sender<usize>>,
     halts: Option<Sender<usize>>,
 }
 
 impl Intcode {
-    pub fn new<Iter>(memory: Iter) -> Intcode
-    where
-        Iter: IntoIterator,
-        Word: From<Iter::Item>,
-    {
+    pub fn new(memory: IntcodeMemory) -> Intcode {
         Intcode {
-            memory: memory.into_iter().map(Word::from).collect(),
+            memory,
             ..Intcode::default()
         }
     }
 
-    pub fn with_inputs(mut self, inputs: Receiver<WordInner>) -> Self {
+    pub fn with_inputs(mut self, inputs: Receiver<Word>) -> Self {
         self.inputs = Some(inputs);
         self
     }
 
-    pub fn with_outputs(mut self, outputs: Sender<WordInner>) -> Self {
+    pub fn with_outputs(mut self, outputs: Sender<Word>) -> Self {
         self.outputs = Some(outputs);
         self
     }
@@ -142,7 +68,7 @@ impl Intcode {
     }
 
     // convenience fn to initialize with static inputs
-    pub fn using_inputs(self, inputs: &[WordInner]) -> Self {
+    pub fn using_inputs(self, inputs: &[Word]) -> Self {
         let (sender, receiver) = channel();
         for input in inputs {
             sender.send(*input).unwrap();
@@ -150,24 +76,68 @@ impl Intcode {
         self.with_inputs(receiver)
     }
 
+    /// destructure a word into its opcode and triplet of modes
+    ///
+    /// output tuple is (opcode, param1, param2, param3) to line up with the position
+    /// of the parameters.
+    pub fn destructure(mut word: Word) -> Result<(Opcode, Mode, Mode, Mode), String> {
+        let opcode = (word % 100) as Opcode;
+        word /= 100;
+        let pc = Mode::try_from(word % 10)?;
+        word /= 10;
+        let pb = Mode::try_from(word % 10)?;
+        word /= 10;
+        let pa = Mode::try_from(word % 10)?;
+        word /= 10;
+        if word == 0 {
+            Ok((opcode, pc, pb, pa))
+        } else {
+            Err(format!(
+                "could not destructure word as opcode: extra digits: {}",
+                word
+            ))
+        }
+    }
+
+    /// get the value indicated by the position in memory at `self.ip + relative`
+    fn mem(&self, relative: usize, mode: Mode) -> Word {
+        let value = self.memory[self.ip + relative];
+        use Mode::*;
+        match mode {
+            Position => self.memory[value as usize],
+            Immediate => value,
+            Relative => self.memory[value as usize + self.ip],
+        }
+    }
+
+    /// get a mutable ref to the value indicated by the position in memory at `self.ip + relative`
+    fn mem_mut(&mut self, relative: usize, mode: Mode) -> &mut Word {
+        let value = self.memory[self.ip + relative];
+        use Mode::*;
+        match mode {
+            Position => &mut self.memory[value as usize],
+            Immediate => panic!("attempt to mutate an immediate value at ip {}", self.ip),
+            Relative => &mut self.memory[value as usize + self.ip],
+        }
+    }
+
     fn apply3<F>(&mut self, p1: Mode, p2: Mode, p3: Mode, operation: F)
     where
-        F: FnOnce(WordInner, WordInner) -> WordInner,
+        F: FnOnce(Word, Word) -> Word,
     {
-        let p1v = self.memory[self.ip + 1].value(p1, &self.memory);
-        let p2v = self.memory[self.ip + 2].value(p2, &self.memory);
-        let out = self.memory[self.ip + 3];
-        *out.value_mut(p3, &mut self.memory) = operation(p1v, p2v);
+        let p1v = self.mem(1, p1);
+        let p2v = self.mem(2, p2);
+        *self.mem_mut(3, p3) = operation(p1v, p2v);
         self.ip += 4;
     }
 
     fn jumpif<F>(&mut self, p1: Mode, p2: Mode, condition: F)
     where
-        F: FnOnce(WordInner) -> bool,
+        F: FnOnce(Word) -> bool,
     {
         // jump if condition is true
-        let test = self.memory[self.ip + 1].value(p1, &self.memory);
-        let ipval = self.memory[self.ip + 2].value(p2, &self.memory);
+        let test = self.mem(1, p1);
+        let ipval = self.mem(2, p2);
         #[cfg(feature = "intcode-debug")]
         dbg!("jump-if", self.ip, test, ipval);
         if condition(test) {
@@ -193,7 +163,7 @@ impl Intcode {
         if self.halted {
             return Ok(false);
         }
-        let (opcode, p1, p2, p3) = self.memory[self.ip].destructure()?;
+        let (opcode, p1, p2, p3) = Self::destructure(self.memory[self.ip])?;
         match opcode {
             1 => {
                 // add
@@ -214,8 +184,7 @@ impl Intcode {
                         })?;
                     #[cfg(feature = "intcode-debug")]
                     println!("input at ip {}: {}", self.ip, input);
-                    let out = self.memory[self.ip + 1];
-                    *out.value_mut(p1, &mut self.memory) = input.into();
+                    *self.mem_mut(1, p1) = input.into();
                     self.ip += 2;
                 } else {
                     return Err(format!("input at {} but no input stream set", self.ip));
@@ -223,7 +192,7 @@ impl Intcode {
             }
             4 => {
                 // output
-                let val = self.memory[self.ip + 1].value(p1, &self.memory);
+                let val = self.mem(1, p1);
                 #[cfg(feature = "intcode-debug")]
                 println!("output at ip {}: {}", self.ip, val);
                 if let Some(outputs) = &self.outputs {
@@ -289,7 +258,7 @@ impl Intcode {
 
     // run this computer into program completion,
     // collecting the outputs into a vector
-    pub fn run_collect(&mut self) -> Result<Vec<WordInner>, String> {
+    pub fn run_collect(&mut self) -> Result<Vec<Word>, String> {
         let (sender, receiver) = channel();
         self.outputs = Some(sender);
         self.run()?;
@@ -304,17 +273,19 @@ impl Intcode {
     }
 }
 
-pub fn compute_intcode(memory: &IntcodeMemory) {
-    Intcode::new(memory.iter()).run().unwrap();
+pub fn compute_intcode(memory: IntcodeMemory) -> IntcodeMemory {
+    let mut computer = Intcode::new(memory);
+    computer.run().unwrap();
+    std::mem::replace(&mut computer.memory, Vec::new())
 }
 
 pub fn compute_intcode_ioch(
-    memory: &IntcodeMemory,
-    inputs: Receiver<WordInner>,
-    outputs: Sender<WordInner>,
+    memory: IntcodeMemory,
+    inputs: Receiver<Word>,
+    outputs: Sender<Word>,
     halts: Sender<usize>,
 ) -> Result<(), String> {
-    let mut computer = Intcode::new(memory.iter())
+    let mut computer = Intcode::new(memory)
         .with_inputs(inputs)
         .with_outputs(outputs)
         .with_halts(halts);
