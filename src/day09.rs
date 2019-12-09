@@ -26,8 +26,11 @@ impl Exercise for Day {
         }
     }
 
-    fn part2(&self, _path: &Path) {
-        unimplemented!()
+    fn part2(&self, path: &Path) {
+        let memory: IntcodeMemory = parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
+        let mut computer = Intcode::new(memory).using_inputs(&[2]);
+        let coords = computer.run_collect().expect("computation should complete successfully")[0];
+        println!("coordinates: {}", coords);
     }
 }
 
