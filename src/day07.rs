@@ -29,15 +29,15 @@ impl Exercise for Day {
     }
 }
 
-fn compute_amplifier_stack(memory: &IntcodeMemory, phases: &[i32]) -> i32 {
+fn compute_amplifier_stack(memory: &IntcodeMemory, phases: &[Word]) -> Word {
     use crossbeam_channel::{unbounded as channel, Receiver, Sender};
 
     // these variables carry the sender and receiver to the next amp stage
     // note that these particular values are never used except to convince
     // the compiler that they are never used before initialization
     let (mut sender, mut receiver) = channel();
-    let mut prev_sender: Sender<i32>;
-    let mut prev_receiver: Receiver<i32>;
+    let mut prev_sender: Sender<Word>;
+    let mut prev_receiver: Receiver<Word>;
     let (halts_send, halts_recv) = channel();
 
     // this pair handles wraparound
@@ -95,7 +95,7 @@ fn compute_amplifier_stack(memory: &IntcodeMemory, phases: &[i32]) -> i32 {
     }
 }
 
-fn find_optimal_phases(memory: &IntcodeMemory, mut phases: Vec<i32>) -> Option<(Vec<i32>, i32)> {
+fn find_optimal_phases(memory: &IntcodeMemory, mut phases: Vec<Word>) -> Option<(Vec<Word>, Word)> {
     let mut max_signal = None;
     let mut max_phases = None;
 

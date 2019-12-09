@@ -44,7 +44,7 @@ impl Exercise for Day {
     }
 }
 
-fn get_diagnostic(outputs: &[i32], oips: &[usize], halts: &[usize]) {
+fn get_diagnostic(outputs: &[Word], oips: &[usize], halts: &[usize]) {
     if halts.is_empty() {
         println!("need a halt; got none");
         return;

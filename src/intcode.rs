@@ -2,7 +2,7 @@ use crossbeam_channel::{unbounded as channel, Receiver, Sender};
 use derive_more::*;
 use std::convert::TryFrom;
 
-pub type Word = i32;
+pub type Word = i64;
 pub type IntcodeMemory = Vec<Word>;
 pub type Opcode = u8;
 
@@ -35,6 +35,7 @@ pub struct Intcode {
     outputs: Option<Sender<Word>>,
     output_ips: Option<Sender<usize>>,
     halts: Option<Sender<usize>>,
+    relative_base_offset: usize,
 }
 
 impl Intcode {
@@ -103,10 +104,15 @@ impl Intcode {
     fn mem(&self, relative: usize, mode: Mode) -> Word {
         let value = self.memory[self.ip + relative];
         use Mode::*;
-        match mode {
-            Position => self.memory[value as usize],
-            Immediate => value,
-            Relative => self.memory[value as usize + self.ip],
+        let idx = match mode {
+            Position => value as usize,
+            Immediate => return value,
+            Relative => value as usize + self.relative_base_offset,
+        };
+        if idx >= self.memory.len() {
+            0
+        } else {
+            self.memory[idx]
         }
     }
 
@@ -114,11 +120,15 @@ impl Intcode {
     fn mem_mut(&mut self, relative: usize, mode: Mode) -> &mut Word {
         let value = self.memory[self.ip + relative];
         use Mode::*;
-        match mode {
-            Position => &mut self.memory[value as usize],
+        let idx = match mode {
+            Position => value as usize,
             Immediate => panic!("attempt to mutate an immediate value at ip {}", self.ip),
-            Relative => &mut self.memory[value as usize + self.ip],
-        }
+            Relative => value as usize + self.relative_base_offset,
+        };
+        // grow the memory as required to ensure the target is in the vector
+        self.memory
+            .resize_with(std::cmp::max(self.memory.len(), idx), Default::default);
+        &mut self.memory[idx]
     }
 
     fn apply3<F>(&mut self, p1: Mode, p2: Mode, p3: Mode, operation: F)
@@ -228,6 +238,16 @@ impl Intcode {
             8 => {
                 // equals
                 self.apply3(p1, p2, p3, |a, b| if a == b { 1 } else { 0 });
+            }
+            9 => {
+                // relative base offset
+                let adjustment = self.mem(1, p1);
+                if adjustment > 0 {
+                    self.relative_base_offset += adjustment as usize;
+                } else {
+                    self.relative_base_offset -= (-adjustment) as usize;
+                }
+                self.ip += 2;
             }
             99 => {
                 #[cfg(feature = "intcode-debug")]
