@@ -1,5 +1,4 @@
 use crossbeam_channel::{unbounded as channel, Receiver, Sender};
-use derive_more::*;
 use std::convert::TryFrom;
 
 pub type Word = i64;
@@ -107,7 +106,7 @@ impl Intcode {
         let idx = match mode {
             Position => value as usize,
             Immediate => return value,
-            Relative => value as usize + self.relative_base_offset,
+            Relative => (value as i64 + self.relative_base_offset as i64) as usize,
         };
         if idx >= self.memory.len() {
             0
@@ -123,11 +122,11 @@ impl Intcode {
         let idx = match mode {
             Position => value as usize,
             Immediate => panic!("attempt to mutate an immediate value at ip {}", self.ip),
-            Relative => value as usize + self.relative_base_offset,
+            Relative => (value as i64 + self.relative_base_offset as i64) as usize,
         };
         // grow the memory as required to ensure the target is in the vector
         self.memory
-            .resize_with(std::cmp::max(self.memory.len(), idx), Default::default);
+            .resize_with(std::cmp::max(self.memory.len(), idx + 1), Default::default);
         &mut self.memory[idx]
     }
 
@@ -247,6 +246,8 @@ impl Intcode {
                 } else {
                     self.relative_base_offset -= (-adjustment) as usize;
                 }
+                #[cfg(feature = "intcode-debug")]
+                println!("set rbo to {} at {}", self.relative_base_offset, self.ip);
                 self.ip += 2;
             }
             99 => {
