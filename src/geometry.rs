@@ -120,7 +120,7 @@ pub struct Point {
 }
 
 impl Point {
-    pub fn new(x: i32, y: i32) -> Point {
+    pub const fn new(x: i32, y: i32) -> Point {
         Point { x, y }
     }
 
