@@ -1,4 +1,4 @@
-use std::ops::Sub;
+use std::ops::{Add, Div, Mul, Sub};
 use std::str::FromStr;
 
 pub fn follow(traces: &[Trace]) -> Vec<Line> {
@@ -113,7 +113,7 @@ impl FromStr for Trace {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Point {
     pub x: i32,
     pub y: i32,
@@ -132,6 +132,24 @@ impl Point {
     pub fn manhattan(&self) -> i32 {
         self.x.abs() + self.y.abs()
     }
+
+    pub fn abs(&self) -> Point {
+        Point {
+            x: self.x.abs(),
+            y: self.y.abs(),
+        }
+    }
+}
+
+impl Add for Point {
+    type Output = Point;
+
+    fn add(self, other: Point) -> Point {
+        Point {
+            x: self.x + other.x,
+            y: self.y + other.y,
+        }
+    }
 }
 
 impl Sub for Point {
@@ -141,6 +159,28 @@ impl Sub for Point {
         Point {
             x: self.x - other.x,
             y: self.y - other.y,
+        }
+    }
+}
+
+impl Mul<i32> for Point {
+    type Output = Point;
+
+    fn mul(self, other: i32) -> Point {
+        Point {
+            x: self.x * other,
+            y: self.y * other,
+        }
+    }
+}
+
+impl Div<i32> for Point {
+    type Output = Point;
+
+    fn div(self, other: i32) -> Point {
+        Point {
+            x: self.x / other,
+            y: self.y / other,
         }
     }
 }

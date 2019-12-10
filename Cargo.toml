@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 chrono = "0.4.10"
 crossbeam-channel = "0.4.0"
+num-integer = "0.1.41"
 permutohedron = "0.2.4"
 structopt = "0.3.5"
 
