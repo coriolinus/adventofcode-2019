@@ -70,7 +70,10 @@ impl Exercise for Day {
             }
         }
 
-        for row in hull[min_y.expect("min_y")..=max_y.expect("max_y")].iter().rev() {
+        for row in hull[min_y.expect("min_y")..=max_y.expect("max_y")]
+            .iter()
+            .rev()
+        {
             for val in &row[min_x.expect("min_x")..=max_x.expect("max_x")] {
                 if *val {
                     print!("#");
