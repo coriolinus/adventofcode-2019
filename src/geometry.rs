@@ -75,12 +75,45 @@ pub fn intersections_naive(ap: &[Line], bp: &[Line]) -> Vec<Point> {
     isects
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Right,
     Left,
     Up,
     Down,
+}
+
+impl Direction {
+    /// (dx, dy), for Right is +x and Up is +y
+    pub fn deltas(self) -> (i32, i32) {
+        use Direction::*;
+        match self {
+            Up => (0, 1),
+            Down => (0, -1),
+            Right => (1, 0),
+            Left => (-1, 0),
+        }
+    }
+
+    pub fn turn_right(self) -> Direction {
+        use Direction::*;
+        match self {
+            Up => Self::Right,
+            Right => Self::Down,
+            Down => Self::Left,
+            Left => Self::Up,
+        }
+    }
+
+    pub fn turn_left(self) -> Direction {
+        use Direction::*;
+        match self {
+            Up => Self::Left,
+            Left => Self::Down,
+            Down => Self::Right,
+            Right => Self::Up,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -148,6 +181,17 @@ impl Add for Point {
         Point {
             x: self.x + other.x,
             y: self.y + other.y,
+        }
+    }
+}
+
+impl Add<(i32, i32)> for Point {
+    type Output = Point;
+
+    fn add(self, (dx, dy): (i32, i32)) -> Point {
+        Point {
+            x: self.x + dx,
+            y: self.y + dy,
         }
     }
 }

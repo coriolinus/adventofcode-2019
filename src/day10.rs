@@ -30,7 +30,7 @@ impl Exercise for Day {
         #[cfg(feature = "debug")]
         const LASER: Point = Point::new(11, 13);
 
-        #[cfg(feature="debug")]
+        #[cfg(feature = "debug")]
         dbg!(LASER);
 
         const BET_IDX: usize = 199;
