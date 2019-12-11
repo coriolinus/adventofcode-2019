@@ -32,8 +32,54 @@ impl Exercise for Day {
         println!("painted {} hull panels", painted.len());
     }
 
-    fn part2(&self, _path: &Path) {
-        unimplemented!()
+    fn part2(&self, path: &Path) {
+        let memory: IntcodeMemory = parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
+        let (camera, receiver) = channel();
+        let (sender, controls) = channel();
+        let mut computer = Intcode::new(memory)
+            .with_inputs(receiver)
+            .with_outputs(sender);
+        thread::spawn(move || computer.run());
+
+        let mut hull = vec![vec![false; HULL_SIZE]; HULL_SIZE];
+        hull[HULL_SIZE / 2][HULL_SIZE / 2] = true;
+        let mut robot = Robot::new(HULL_SIZE / 2, HULL_SIZE / 2, camera, controls);
+
+        robot.run(&mut hull).unwrap();
+
+        let mut min_x = None;
+        let mut max_x = None;
+        let mut min_y = None;
+        let mut max_y = None;
+        for (y, row) in hull.iter().enumerate() {
+            for (x, val) in row.iter().enumerate() {
+                if *val {
+                    if min_x.is_none() || x < min_x.unwrap() {
+                        min_x = Some(x);
+                    }
+                    if max_x.is_none() || x > max_x.unwrap() {
+                        max_x = Some(x);
+                    }
+                    if min_y.is_none() || y < min_y.unwrap() {
+                        min_y = Some(y);
+                    }
+                    if max_y.is_none() || y > max_y.unwrap() {
+                        max_y = Some(y);
+                    }
+                }
+            }
+        }
+
+        for row in hull[min_y.expect("min_y")..=max_y.expect("max_y")].iter().rev() {
+            for val in &row[min_x.expect("min_x")..=max_x.expect("max_x")] {
+                if *val {
+                    print!("#");
+                } else {
+                    print!(" ");
+                }
+            }
+            println!();
+        }
     }
 }
 
