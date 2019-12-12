@@ -15,6 +15,7 @@ pub mod day08;
 pub mod day09;
 pub mod day10;
 pub mod day11;
+pub mod day12;
 pub mod geometry;
 pub mod intcode;
 
@@ -40,6 +41,7 @@ pub fn dispatch(day: u8, path: &Path, part1: bool, part2: bool) {
         9 => Some(Box::new(day09::Day {})),
         10 => Some(Box::new(day10::Day {})),
         11 => Some(Box::new(day11::Day {})),
+        12 => Some(Box::new(day12::Day {})),
         _ => None,
     };
     match exercise {
