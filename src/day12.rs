@@ -1,14 +1,23 @@
 use crate::{geometry::Vector3, parse, Exercise};
-
+use num_integer::Integer;
 use std::fmt;
 use std::path::Path;
 
 pub struct Day;
 
-#[cfg(feature="debug")]
+#[cfg(feature = "debug")]
 const SIM_DURATION: usize = 10;
-#[cfg(not(feature="debug"))]
+#[cfg(not(feature = "debug"))]
 const SIM_DURATION: usize = 1000;
+
+macro_rules! dimension {
+    ($d:ident in $moons:expr) => {
+        $moons
+            .iter()
+            .map(|moon| moon.position.$d)
+            .collect::<Vec<_>>()
+    };
+}
 
 impl Exercise for Day {
     fn part1(&self, path: &Path) {
@@ -32,8 +41,52 @@ impl Exercise for Day {
         );
     }
 
-    fn part2(&self, _path: &Path) {
-        unimplemented!()
+    fn part2(&self, path: &Path) {
+        let mut moons: Vec<_> = parse::<Vector3>(path).unwrap().map(Moon::new).collect();
+
+        let initial_x = dimension!(x in moons);
+        let initial_y = dimension!(y in moons);
+        let initial_z = dimension!(z in moons);
+
+        let mut x_cycle = None;
+        let mut y_cycle = None;
+        let mut z_cycle = None;
+
+        for step in 2_u64.. {
+            calc_step(&mut moons);
+
+            if x_cycle.is_none() && initial_x == dimension!(x in moons) {
+                x_cycle = Some(step);
+            }
+
+            if y_cycle.is_none() && initial_y == dimension!(y in moons) {
+                y_cycle = Some(step);
+            }
+
+            if z_cycle.is_none() && initial_z == dimension!(z in moons) {
+                z_cycle = Some(step);
+            }
+
+            if x_cycle.is_some() && y_cycle.is_some() && z_cycle.is_some() {
+                break;
+            }
+        }
+
+        let x_cycle = x_cycle.unwrap();
+        let y_cycle = y_cycle.unwrap();
+        let z_cycle = z_cycle.unwrap();
+
+        #[cfg(feature = "debug")]
+        {
+            eprintln!("xc: {}", x_cycle);
+            eprintln!("yc: {}", y_cycle);
+            eprintln!("zc: {}", z_cycle);
+        }
+
+        let inter = (x_cycle * y_cycle) / x_cycle.gcd(&y_cycle);
+        let cycle = (inter * z_cycle) / inter.gcd(&z_cycle);
+
+        println!("cycle length: {}", cycle);
     }
 }
 
