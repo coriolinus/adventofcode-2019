@@ -11,11 +11,8 @@ const SIM_DURATION: usize = 10;
 const SIM_DURATION: usize = 1000;
 
 macro_rules! dimension {
-    ($d:ident in $moons:expr) => {
-        $moons
-            .iter()
-            .map(|moon| moon.position.$d)
-            .collect::<Vec<_>>()
+    ($moons:ident.$t:ident.$d:ident) => {
+        $moons.iter().map(|moon| moon.$t.$d).collect::<Vec<_>>()
     };
 }
 
@@ -44,26 +41,35 @@ impl Exercise for Day {
     fn part2(&self, path: &Path) {
         let mut moons: Vec<_> = parse::<Vector3>(path).unwrap().map(Moon::new).collect();
 
-        let initial_x = dimension!(x in moons);
-        let initial_y = dimension!(y in moons);
-        let initial_z = dimension!(z in moons);
+        let initial_x = dimension!(moons.position.x);
+        let initial_y = dimension!(moons.position.y);
+        let initial_z = dimension!(moons.position.z);
 
         let mut x_cycle = None;
         let mut y_cycle = None;
         let mut z_cycle = None;
 
-        for step in 2_u64.. {
+        for step in 1_u64.. {
             calc_step(&mut moons);
 
-            if x_cycle.is_none() && initial_x == dimension!(x in moons) {
+            if x_cycle.is_none()
+                && initial_x == dimension!(moons.position.x)
+                && dimension!(moons.velocity.x).iter().all(|v| *v == 0)
+            {
                 x_cycle = Some(step);
             }
 
-            if y_cycle.is_none() && initial_y == dimension!(y in moons) {
+            if y_cycle.is_none()
+                && initial_y == dimension!(moons.position.y)
+                && dimension!(moons.velocity.y).iter().all(|v| *v == 0)
+            {
                 y_cycle = Some(step);
             }
 
-            if z_cycle.is_none() && initial_z == dimension!(z in moons) {
+            if z_cycle.is_none()
+                && initial_z == dimension!(moons.position.z)
+                && dimension!(moons.velocity.z).iter().all(|v| *v == 0)
+            {
                 z_cycle = Some(step);
             }
 
