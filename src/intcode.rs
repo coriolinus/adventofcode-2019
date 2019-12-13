@@ -186,12 +186,15 @@ impl Intcode {
             3 => {
                 // input
                 if let Some(inputs) = &self.inputs {
-                    let input = inputs
-                        .recv_timeout(std::time::Duration::new(1, 0))
-                        .map_err(|err| {
-                            self.halted = true;
-                            format!("abort: needed input at ip {} but errored: {}", self.ip, err)
-                        })?;
+                    #[cfg(not(feature = "unbounded-input-time"))]
+                    let input_result = inputs.recv_timeout(std::time::Duration::new(1, 0));
+                    #[cfg(feature = "unbounded-input-time")]
+                    let input_result = inputs.recv();
+
+                    let input = input_result.map_err(|err| {
+                        self.halted = true;
+                        format!("abort: needed input at ip {} but errored: {}", self.ip, err)
+                    })?;
                     #[cfg(feature = "intcode-debug")]
                     println!("input at ip {}: {}", self.ip, input);
                     *self.mem_mut(1, p1) = input.into();

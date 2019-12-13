@@ -106,3 +106,12 @@ impl<T> IntoIterator for CommaSep<T> {
         self.0.into_iter()
     }
 }
+
+pub fn ordering_value(ord: std::cmp::Ordering) -> i32 {
+    use std::cmp::Ordering::*;
+    match ord {
+        Less => -1,
+        Equal => 0,
+        Greater => 1,
+    }
+}

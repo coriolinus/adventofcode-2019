@@ -2,3 +2,4 @@
 **/*.rs.bk
 /inputs/
 /src/template.rs
+*.log

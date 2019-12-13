@@ -1,4 +1,4 @@
-use crate::{geometry::Vector3, parse, Exercise};
+use crate::{geometry::Vector3, ordering_value, parse, Exercise};
 use num_integer::Integer;
 use std::fmt;
 use std::path::Path;
@@ -128,22 +128,13 @@ impl fmt::Display for Moon {
     }
 }
 
-fn ordval(ord: std::cmp::Ordering) -> i32 {
-    use std::cmp::Ordering::*;
-    match ord {
-        Less => -1,
-        Equal => 0,
-        Greater => 1,
-    }
-}
-
 fn calc_step(moons: &mut [Moon]) {
     // update velocities by applying gravity
     for i in 0..moons.len() {
         for j in 0..moons.len() {
-            moons[i].velocity.x += ordval(moons[j].position.x.cmp(&moons[i].position.x));
-            moons[i].velocity.y += ordval(moons[j].position.y.cmp(&moons[i].position.y));
-            moons[i].velocity.z += ordval(moons[j].position.z.cmp(&moons[i].position.z));
+            moons[i].velocity.x += ordering_value(moons[j].position.x.cmp(&moons[i].position.x));
+            moons[i].velocity.y += ordering_value(moons[j].position.y.cmp(&moons[i].position.y));
+            moons[i].velocity.z += ordering_value(moons[j].position.z.cmp(&moons[i].position.z));
         }
     }
 

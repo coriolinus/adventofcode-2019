@@ -15,7 +15,9 @@ num-integer = "0.1.41"
 permutohedron = "0.2.4"
 regex = "1.3.1"
 structopt = "0.3.5"
+term_cursor = "0.2.1"
 
 [features]
 intcode-debug=[]
 debug=[]
+unbounded-input-time=[]

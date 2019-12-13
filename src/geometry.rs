@@ -23,7 +23,7 @@ pub fn follow(traces: &[Trace]) -> Vec<Line> {
 }
 
 // https://stackoverflow.com/a/1968345/504550
-pub fn intersect(a: &Line, b: &Line) -> Option<Point> {
+pub fn intersect(a: Line, b: Line) -> Option<Point> {
     let p0 = a.from;
     let p1 = a.to;
     let p2 = b.from;
@@ -70,7 +70,7 @@ pub fn intersections_naive(ap: &[Line], bp: &[Line]) -> Vec<Point> {
     let mut isects = Vec::new();
     for a in ap {
         for b in bp {
-            if let Some(isect) = intersect(a, b) {
+            if let Some(isect) = intersect(*a, *b) {
                 isects.push(isect);
             }
         }

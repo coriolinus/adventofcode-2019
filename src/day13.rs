@@ -1,11 +1,20 @@
 use crate::{
+    geometry::{Point},
     intcode::{channel, Intcode, IntcodeMemory, Word},
-    parse, CommaSep, Exercise,
+    ordering_value, parse, CommaSep, Exercise,
 };
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::path::Path;
 use std::thread;
+use term_cursor::{clear, set_pos};
+
+#[cfg(feature = "debug")]
+use std::io::Write;
+
+pub const INFO_X: i32 = 40;
+pub const SCORE_Y: i32 = 3;
+pub const DEBUG_Y: i32 = 5;
 
 pub struct Day;
 
@@ -18,19 +27,121 @@ impl Exercise for Day {
             computer.run().unwrap();
         });
 
+        clear().unwrap();
         let mut blocks = 0;
-        while let Ok(_x) = to_screen.recv() {
-            let _y = to_screen.recv().unwrap();
+        let mut max_y = 0;
+        while let Ok(x) = to_screen.recv() {
+            let y = to_screen.recv().unwrap();
+            if y > max_y {
+                max_y = y;
+            }
             let tile: Tile = to_screen.recv().unwrap().try_into().unwrap();
             if tile == Tile::Block {
                 blocks += 1;
             }
+            #[cfg(not(feature = "debug"))]
+            {
+                set_pos(x as i32 + 1, y as i32 + 1).unwrap();
+                print!("{}", tile);
+            }
+            #[cfg(feature = "debug")]
+            println!("{:?} @ ({}, {})", tile, x, y);
         }
-        println!("total blocks: {}", blocks);
+        #[cfg(not(feature = "debug"))]
+        set_pos(0, max_y as i32 + 1).unwrap();
+        println!("\ntotal blocks: {}", blocks);
     }
 
-    fn part2(&self, _path: &Path) {
-        unimplemented!()
+    fn part2(&self, path: &Path) {
+        let mut memory: IntcodeMemory = parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
+        memory[0] = 2;
+        let (outputs, to_screen) = channel();
+        let (joystick, inputs) = channel();
+        let mut computer = Intcode::new(memory)
+            .with_outputs(outputs)
+            .with_inputs(inputs);
+        // run the computer
+        thread::spawn(move || {
+            computer.run().unwrap();
+        });
+
+        // send an initial null to the joystick to prime the pump
+        joystick.send(0).unwrap();
+
+        // handle output in its own thread, so we don't need to worry about
+        // synchronization with the input
+        #[cfg(feature = "debug")]
+        clear().unwrap();
+        let mut score = 0;
+        let mut prev_ball_pos: Point;
+        let mut ball_pos = Point::default();
+        let mut paddle_pos = Point::default();
+
+        while let Ok(x) = to_screen.recv() {
+            let y = to_screen.recv().unwrap();
+            let val = to_screen.recv().unwrap();
+
+            if x == -1 && y == 0 {
+                score = val;
+
+                #[cfg(feature = "debug")]
+                {
+                    set_pos(INFO_X, SCORE_Y).unwrap();
+                    print!("score: {}", val);
+                }
+            } else {
+                let tile: Tile = val.try_into().unwrap();
+                #[cfg(feature = "debug")]
+                {
+                    set_pos(x as i32 + 1, y as i32 + 1).unwrap();
+                    print!("{}", tile);
+                }
+                match tile {
+                    Tile::Ball => {
+                        prev_ball_pos = ball_pos;
+                        ball_pos = Point::new(x as i32, y as i32);
+
+                        // the ball has to update once every tick, so let's send our intputs here
+
+                        // do we need to move right, left, or stay put?
+                        // where will the ball intersect the plane of the paddle?
+                        let isect = if ball_pos.x > prev_ball_pos.x {
+                            ball_pos.x + 1
+                        } else {
+                            ball_pos.x - 1
+                        };
+                        let movement = ordering_value(isect.cmp(&paddle_pos.x));
+                        if let Err(err) = joystick.send(movement.into()) {
+                            set_pos(1, paddle_pos.y + 3).unwrap();
+                            println!("joystick send: {}", err);
+                            return;
+                        };
+
+                        #[cfg(feature = "debug")]
+                        {
+                            set_pos(INFO_X, DEBUG_Y).unwrap();
+                            print!("ball: {:?}", ball_pos);
+                            set_pos(INFO_X, DEBUG_Y + 1).unwrap();
+                            print!("paddle: {:?}", paddle_pos);
+                            set_pos(INFO_X, DEBUG_Y + 2).unwrap();
+                            print!("isect: {:?}", isect);
+                            set_pos(INFO_X, DEBUG_Y + 3).unwrap();
+                            print!("joystick: {:?}", movement);
+
+                            std::io::stdout().flush().unwrap();
+                            thread::sleep(std::time::Duration::from_millis(750));
+                        }
+                    }
+                    Tile::Paddle => {
+                        paddle_pos = Point::new(x as i32, y as i32);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        #[cfg(feature = "debug")]
+        set_pos(1, paddle_pos.y + 3).unwrap();
+        println!("score on clear: {}", score);
     }
 }
 
@@ -52,9 +163,9 @@ impl fmt::Display for Tile {
             match self {
                 Empty => " ",
                 Wall => "█",
-                Block => "▢",
+                Block => "X",
                 Paddle => "―",
-                Ball => "⭘",
+                Ball => "o",
             }
         )
     }

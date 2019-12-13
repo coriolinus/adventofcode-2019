@@ -64,7 +64,7 @@ fn intersections_steps(ap: &[Line], bp: &[Line]) -> BTreeMap<i32, Point> {
         let mut b_steps = 0;
 
         for b in bp {
-            if let Some(isect) = intersect(a, b) {
+            if let Some(isect) = intersect(*a, *b) {
                 let steps =
                     a_steps + b_steps + (isect - a.from).manhattan() + (isect - b.from).manhattan();
                 isects.entry(steps).or_insert(isect);
