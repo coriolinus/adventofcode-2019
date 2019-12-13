@@ -1,4 +1,5 @@
-use crossbeam_channel::{unbounded as channel, Receiver, Sender};
+pub use crossbeam_channel::unbounded as channel;
+use crossbeam_channel::{Receiver, Sender};
 use std::convert::TryFrom;
 
 pub type Word = i64;
