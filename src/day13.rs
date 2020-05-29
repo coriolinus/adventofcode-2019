@@ -65,16 +65,12 @@ impl Exercise for Day {
             computer.run().unwrap();
         });
 
-        // send an initial null to the joystick to prime the pump
-        joystick.send(0).unwrap();
-
         // handle output in its own thread, so we don't need to worry about
         // synchronization with the input
         #[cfg(feature = "debug")]
         clear().unwrap();
         let mut score = 0;
-        let mut prev_ball_pos: Point;
-        let mut ball_pos = Point::default();
+        let mut ball_pos;
         let mut paddle_pos = Point::default();
 
         while let Ok(x) = to_screen.recv() {
@@ -98,19 +94,11 @@ impl Exercise for Day {
                 }
                 match tile {
                     Tile::Ball => {
-                        prev_ball_pos = ball_pos;
                         ball_pos = Point::new(x as i32, y as i32);
 
-                        // the ball has to update once every tick, so let's send our intputs here
+                        // the ball has to update once every tick, so let's send our inputs here
 
-                        // do we need to move right, left, or stay put?
-                        // where will the ball intersect the plane of the paddle?
-                        let isect = if ball_pos.x > prev_ball_pos.x {
-                            ball_pos.x + 1
-                        } else {
-                            ball_pos.x - 1
-                        };
-                        let movement = ordering_value(isect.cmp(&paddle_pos.x));
+                        let movement = ordering_value(ball_pos.x.cmp(&paddle_pos.x));
                         if let Err(err) = joystick.send(movement.into()) {
                             set_pos(1, paddle_pos.y + 3).unwrap();
                             println!("joystick send: {}", err);
@@ -123,13 +111,13 @@ impl Exercise for Day {
                             print!("ball: {:?}", ball_pos);
                             set_pos(INFO_X, DEBUG_Y + 1).unwrap();
                             print!("paddle: {:?}", paddle_pos);
-                            set_pos(INFO_X, DEBUG_Y + 2).unwrap();
-                            print!("isect: {:?}", isect);
+                            // set_pos(INFO_X, DEBUG_Y + 2).unwrap();
+                            // print!("isect: {:?}", isect);
                             set_pos(INFO_X, DEBUG_Y + 3).unwrap();
-                            print!("joystick: {:?}", movement);
+                            print!("joystick: {:2}", movement);
 
                             std::io::stdout().flush().unwrap();
-                            thread::sleep(std::time::Duration::from_millis(750));
+                            thread::sleep(std::time::Duration::from_millis(700));
                         }
                     }
                     Tile::Paddle => {
