@@ -117,6 +117,11 @@ impl Direction {
             Right => Self::Up,
         }
     }
+
+    pub fn iter() -> impl Iterator<Item = Direction> {
+        use Direction::*;
+        [Up, Down, Left, Right].iter().cloned()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
