@@ -1,5 +1,5 @@
 use crate::{
-    geometry::{Point},
+    geometry::Point,
     intcode::{channel, Intcode, IntcodeMemory, Word},
     ordering_value, parse, CommaSep, Exercise,
 };
