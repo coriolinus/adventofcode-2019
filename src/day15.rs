@@ -10,7 +10,7 @@ use std::collections::{BinaryHeap, HashMap};
 use std::path::Path;
 use std::thread;
 
-const MAP_DIMENSION: usize = 1024;
+const MAP_DIMENSION: usize = 128;
 
 fn out_of_bounds(point: Point) -> bool {
     point.x < 0 || point.y < 0 || point.x >= MAP_DIMENSION as i32 || point.y >= MAP_DIMENSION as i32
@@ -33,8 +33,12 @@ impl Exercise for Day {
 
         let mut droid = Droid::new(controller, sensor);
         droid.find_target();
-        #[cfg(feature="debug")]
-        println!("target location: {:?}", droid.position);
+        #[cfg(feature = "debug")]
+        {
+            println!("target location: {:?}", droid.position);
+            println!("{}", droid.show_map());
+            println!("route to origin: {:#?}", droid.navigate_to(droid.origin));
+        }
         println!(
             "shortest path to o2 system: {}",
             droid.find_shortest_path_to_origin().len(),
@@ -227,15 +231,10 @@ impl Droid {
         // 3. is it the target?
         // 4. if not: repeat
         loop {
-            ddbg!(self.position, self.tile(self.position));
             let nearest_unknown = self.find_nearest_unknown()?;
-            ddbg!(nearest_unknown);
             let path = self.navigate_to(nearest_unknown)?;
-            ddbg!(&path);
             for direction in path {
-                ddbg!(direction);
                 let status = self.go(direction);
-                ddbg!(status, self.position);
                 match status {
                     Status::FoundTarget => return Some(()),
                     Status::HitWall => break, // reevaluate where the nearest empty spaces are
@@ -251,19 +250,31 @@ impl Droid {
     ///
     /// will infinitely loop if the given target is unreachable from the initial position.
     fn proceed_to(&mut self, target: Point) -> bool {
-        let mut first_plan_worked = true;
+        let mut attempt = 0_usize;
 
         while self.position != target {
-            for step in dbg!(self.navigate_to(target).unwrap()) {
-                if dbg!(self.go(dbg!(step))) == Status::HitWall {
-                    first_plan_worked = false;
+            for step in self.navigate_to(target).unwrap() {
+                if self.go(step) == Status::HitWall {
+                    attempt += 1;
                     break;
+                }
+            }
+            #[cfg(feature = "debug")]
+            {
+                if attempt > 0 && attempt & 0x3f == 0 {
+                    dbg!(attempt);
+                }
+                if attempt > 0 && attempt & 0xff == 0 {
+                    println!("attempt {} attempts to get back and forth:", attempt);
+                    println!("{}", self.show_map());
                 }
             }
         }
 
         debug_assert_eq!(self.position, target, "failed to reach desired point!");
-        first_plan_worked
+        #[cfg(feature = "debug")]
+        println!("reached target: {:?}", target);
+        attempt == 0
     }
 
     /// finds the shortest path from the current position to the origin
@@ -279,7 +290,7 @@ impl Droid {
 
         let mut origin = self.position;
         let mut destination = self.origin;
-        while !self.proceed_to(destination) {
+        while !ddbg!(self.proceed_to(destination)) {
             std::mem::swap(&mut origin, &mut destination);
         }
 
@@ -295,6 +306,52 @@ impl Droid {
             "postcondition wasn't upheld!"
         );
         self.navigate_to(self.origin).unwrap()
+    }
+
+    #[allow(dead_code)]
+    fn show_map(&self) -> String {
+        let mut min_x = usize::MAX;
+        let mut min_y = usize::MAX;
+        let mut max_x = 0;
+        let mut max_y = 0;
+
+        for (y, row) in self.map.iter().enumerate() {
+            for (x, tile) in row.iter().enumerate() {
+                if *tile != MapTile::Unknown {
+                    min_x = min_x.min(x);
+                    min_y = min_y.min(y);
+                    max_x = max_x.max(x);
+                    max_y = max_y.max(y);
+                }
+            }
+        }
+
+        // from the bounds, we know the capacity we need
+        // note that we add a column: newlines at the end of each row
+        let capacity = (1 + max_x - min_x) * (max_y - min_y);
+        let mut out = String::with_capacity(capacity);
+
+        // iterate the rows backwards: in AoC, the origin is at the lower
+        // left corner of the map
+        for (y, row) in self.map[min_y..=max_y].iter().enumerate().rev() {
+            for (x, tile) in row[min_x..=max_x].iter().enumerate() {
+                if self.position == Point::new((x + min_x) as i32, (y + min_y) as i32) {
+                    out.push('D');
+                    continue;
+                }
+                if self.origin == Point::from((x + min_x, y + min_y)) {
+                    out.push('O');
+                    continue;
+                }
+                out.push(match tile {
+                    MapTile::Unknown => ' ',
+                    MapTile::Wall => '#',
+                    MapTile::Empty => '.',
+                });
+            }
+            out.push('\n');
+        }
+        out
     }
 }
 

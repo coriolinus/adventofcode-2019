@@ -122,8 +122,11 @@ pub fn ordering_value(ord: std::cmp::Ordering) -> i32 {
 
 #[macro_export]
 macro_rules! ddbg {
-    ($($e:expr),+) => {
-        #[cfg(feature = "debug")]
-        dbg!($($e),+);
+    ($e:expr) => {
+        if cfg!(feature = "debug") {
+            dbg!($e)
+        } else {
+            $e
+        }
     };
 }

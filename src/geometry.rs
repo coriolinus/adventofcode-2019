@@ -182,6 +182,16 @@ impl Point {
     }
 }
 
+impl From<(usize, usize)> for Point {
+    fn from((x, y): (usize, usize)) -> Self {
+        use std::convert::TryFrom;
+        Self::new(
+            i32::try_from(x).unwrap_or(i32::MAX),
+            i32::try_from(y).unwrap_or(i32::MAX),
+        )
+    }
+}
+
 impl Add for Point {
     type Output = Point;
 
