@@ -39,10 +39,9 @@ impl Exercise for Day {
             println!("{}", droid.show_map());
             println!("route to origin: {:#?}", droid.navigate_to(droid.origin));
         }
-        println!(
-            "shortest path to o2 system: {}",
-            droid.find_shortest_path_to_origin().len(),
-        );
+        let shortest_path_len = droid.find_shortest_path_to_origin().len();
+        println!("{}", droid.show_map());
+        println!("shortest path to o2 system: {}", shortest_path_len);
     }
 
     fn part2(&self, _path: &Path) {
@@ -290,7 +289,22 @@ impl Droid {
 
         let mut origin = self.position;
         let mut destination = self.origin;
-        while !ddbg!(self.proceed_to(destination)) {
+
+        // we need to successfully traverse the maze at least
+        // twice in a row before we can assume that subsequent
+        // attempts won't discover any new surprising walls.
+        // Instead of hard-coding this with the assumption that
+        // two is all that is required, we're going to use a
+        // bitfield, so if we need to change that number, we can.
+        let mut bitfield: u8 = 0;
+        const SUCCESSES: u8 = 0b11;
+        while bitfield & SUCCESSES != SUCCESSES {
+            let succeeded = if ddbg!(self.proceed_to(destination)) {
+                1
+            } else {
+                0
+            };
+            bitfield = (bitfield << 1) | succeeded;
             std::mem::swap(&mut origin, &mut destination);
         }
 
@@ -308,7 +322,6 @@ impl Droid {
         self.navigate_to(self.origin).unwrap()
     }
 
-    #[allow(dead_code)]
     fn show_map(&self) -> String {
         let mut min_x = usize::MAX;
         let mut min_y = usize::MAX;
