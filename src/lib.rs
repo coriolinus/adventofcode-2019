@@ -119,3 +119,21 @@ pub fn ordering_value(ord: std::cmp::Ordering) -> i32 {
         Greater => 1,
     }
 }
+
+#[macro_export]
+macro_rules! ddbg {
+    ($($e:expr),+) => {
+        #[cfg(feature = "debug")]
+        dbg!($($e),+);
+    };
+}
+
+#[macro_export]
+macro_rules! dprintln {
+    () => {
+        ($($e:expr),+) => {
+            #[cfg(feature = "debug")]
+            println!($($e),+);
+        };
+    };
+}

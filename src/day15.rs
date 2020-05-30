@@ -1,4 +1,5 @@
 use crate::{
+    ddbg,
     geometry::{Direction, Point},
     intcode::{channel, Intcode, IntcodeMemory, Word},
     parse, CommaSep, Exercise,
@@ -96,6 +97,7 @@ impl Droid {
             }
             (_, Status::Moved) | (_, Status::FoundTarget) => {
                 self.position = destination_tile;
+                *self.tile_mut(self.position).unwrap() = MapTile::Empty;
             }
         }
         status
@@ -223,9 +225,16 @@ impl Droid {
         // 3. is it the target?
         // 4. if not: repeat
         loop {
+            ddbg!(self.position, self.tile(self.position));
             let nearest_unknown = self.find_nearest_unknown()?;
-            for direction in self.navigate_to(nearest_unknown)? {
-                match self.go(direction) {
+            ddbg!(nearest_unknown);
+            let path = self.navigate_to(nearest_unknown)?;
+            ddbg!(&path);
+            for direction in path {
+                ddbg!(direction);
+                let status = self.go(direction);
+                ddbg!(status, self.position);
+                match status {
                     Status::FoundTarget => return Some(()),
                     Status::HitWall => break, // reevaluate where the nearest empty spaces are
                     Status::Moved => {}
@@ -244,7 +253,7 @@ fn movement_command(direction: Direction) -> i64 {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum MapTile {
     Unknown,
     Empty,
@@ -257,7 +266,7 @@ impl Default for MapTile {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 enum Status {
     HitWall,
     Moved,
