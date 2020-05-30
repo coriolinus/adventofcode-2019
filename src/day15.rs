@@ -33,9 +33,11 @@ impl Exercise for Day {
 
         let mut droid = Droid::new(controller, sensor);
         droid.find_target();
+        #[cfg(feature="debug")]
+        println!("target location: {:?}", droid.position);
         println!(
             "shortest path to o2 system: {}",
-            droid.navigate_to(droid.origin).unwrap().len()
+            droid.find_shortest_path_to_origin().len(),
         );
     }
 
@@ -241,6 +243,58 @@ impl Droid {
                 }
             }
         }
+    }
+
+    /// navigate to the target point, recomputing when unexpected walls appear.
+    /// returns true if the original plan succeeded in guiding the robot to
+    /// the destination, false if recomputation was required.
+    ///
+    /// will infinitely loop if the given target is unreachable from the initial position.
+    fn proceed_to(&mut self, target: Point) -> bool {
+        let mut first_plan_worked = true;
+
+        while self.position != target {
+            for step in dbg!(self.navigate_to(target).unwrap()) {
+                if dbg!(self.go(dbg!(step))) == Status::HitWall {
+                    first_plan_worked = false;
+                    break;
+                }
+            }
+        }
+
+        debug_assert_eq!(self.position, target, "failed to reach desired point!");
+        first_plan_worked
+    }
+
+    /// finds the shortest path from the current position to the origin
+    ///
+    /// Repeatedly shuttles between the current position and the origin,
+    /// terminating when the path length is unchanged. This works because
+    /// our navigation function treats unknown spaces as unoccupied, so
+    /// paths through unknown spaces are preferred.
+    ///
+    /// On termination, the robot will be in the same position it began in.
+    fn find_shortest_path_to_origin(&mut self) -> Vec<Direction> {
+        let initial_position = self.position;
+
+        let mut origin = self.position;
+        let mut destination = self.origin;
+        while !self.proceed_to(destination) {
+            std::mem::swap(&mut origin, &mut destination);
+        }
+
+        if self.position != initial_position {
+            assert!(
+                self.proceed_to(initial_position),
+                "we must have found the shortest path by now"
+            );
+        }
+
+        debug_assert_eq!(
+            initial_position, self.position,
+            "postcondition wasn't upheld!"
+        );
+        self.navigate_to(self.origin).unwrap()
     }
 }
 

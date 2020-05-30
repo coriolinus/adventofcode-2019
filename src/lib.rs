@@ -127,13 +127,3 @@ macro_rules! ddbg {
         dbg!($($e),+);
     };
 }
-
-#[macro_export]
-macro_rules! dprintln {
-    () => {
-        ($($e:expr),+) => {
-            #[cfg(feature = "debug")]
-            println!($($e),+);
-        };
-    };
-}
