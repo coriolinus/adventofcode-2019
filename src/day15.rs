@@ -6,7 +6,7 @@ use crate::{
 };
 use crossbeam_channel::{Receiver, Sender};
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::path::Path;
 use std::thread;
 
@@ -18,8 +18,8 @@ fn out_of_bounds(point: Point) -> bool {
 
 pub struct Day;
 
-impl Exercise for Day {
-    fn part1(&self, path: &Path) {
+impl Day {
+    fn find_target_with_droid(path: &Path) -> Droid {
         let memory: IntcodeMemory = parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
         let (controller, inputs) = channel();
         let (outputs, sensor) = channel();
@@ -33,19 +33,81 @@ impl Exercise for Day {
 
         let mut droid = Droid::new(controller, sensor);
         droid.find_target();
+        droid
+    }
+}
+
+impl Exercise for Day {
+    fn part1(&self, path: &Path) {
+        let mut droid = Self::find_target_with_droid(path);
         #[cfg(feature = "debug")]
         {
             println!("target location: {:?}", droid.position);
             println!("{}", droid.show_map());
             println!("route to origin: {:#?}", droid.navigate_to(droid.origin));
         }
+        let oxygenator = droid.position;
+        // it turns out to be _much_ faster to intentionally fill the map
+        // first, than to fill it by accident via repeated failing application
+        // of A*.
+        droid.fill_map();
+        droid.proceed_to(oxygenator);
         let shortest_path_len = droid.find_shortest_path_to_origin().len();
         println!("{}", droid.show_map());
         println!("shortest path to o2 system: {}", shortest_path_len);
     }
 
-    fn part2(&self, _path: &Path) {
-        unimplemented!()
+    fn part2(&self, path: &Path) {
+        let mut droid = Self::find_target_with_droid(path);
+        let oxygenator = droid.position;
+        // at this point, the droid has a very partial and incomplete understanding
+        // of the map. Let's fill in the unknown-but-reachable areas.
+        //
+        // ... it may prove faster to greedily fill all unknown areas first,
+        // then start navigating back and forth between the origin and
+        // target, than it was to repeatedly A* and abort on a surprise wall
+        // back in part 1. That can be a TODO for later.
+        droid.fill_map();
+        droid.proceed_to(oxygenator);
+        println!("{}", droid.show_map());
+
+        let mut minutes = 0;
+
+        enum QueueItem {
+            TimePasses,
+            Position(Point),
+        }
+        use QueueItem::*;
+
+        let mut queue = VecDeque::new();
+        queue.push_back(Position(droid.position));
+        queue.push_back(TimePasses);
+
+        while let Some(qi) = queue.pop_front() {
+            match qi {
+                Position(position) => match droid.tile(position).unwrap() {
+                    MapTile::Unknown => unreachable!("we're in an explored maze"),
+                    MapTile::Empty => {
+                        *droid.tile_mut(position).unwrap() = MapTile::Oxygen;
+                        for direction in Direction::iter() {
+                            queue.push_back(Position(position + direction.deltas()));
+                        }
+                    }
+                    MapTile::Wall | MapTile::Oxygen => {
+                        // no need to retrace our steps
+                    }
+                },
+                TimePasses => {
+                    queue.push_back(TimePasses);
+                    if let Some(TimePasses) = queue.front() {
+                        break;
+                    }
+                    minutes += 1;
+                }
+            }
+        }
+
+        println!("{} minutes before o2 saturation", minutes);
     }
 }
 
@@ -94,7 +156,7 @@ impl Droid {
             (Some(MapTile::Wall), _) => {
                 unreachable!("should never intentionally drive into a wall")
             }
-            (Some(MapTile::Empty), Status::HitWall) => {
+            (Some(MapTile::Empty), Status::HitWall) | (Some(MapTile::Oxygen), Status::HitWall) => {
                 unreachable!("unreliable cartography! aborting")
             }
             (Some(MapTile::Unknown), Status::HitWall) => {
@@ -222,6 +284,45 @@ impl Droid {
             .map(|(point, _)| point)
     }
 
+    fn find_nearest_reachable_unknown(&self) -> Option<Point> {
+        // first things first, make a copy of the map to work on. We're going to
+        // be marking previously-visited tiles as oxygenated, because it's a
+        // convenient label to use, but we don't want to actually edit the
+        // internal map at all.
+        let mut map = self.map.clone();
+
+        // we need a queue of tiles to visit
+        let mut queue = VecDeque::new();
+        queue.push_back(self.position);
+
+        // now, we can start flood-filling the map with oxygen representing
+        // discovered areas. As soon as we find a reachable unknown area,
+        // we break out of the discovery loop and navigate the physical
+        // robot to it, then restart the process.
+        while let Some(position) = queue.pop_front() {
+            match map[position.y as usize][position.x as usize] {
+                MapTile::Unknown => {
+                    return Some(position);
+                }
+                MapTile::Empty => {
+                    map[position.y as usize][position.x as usize] = MapTile::Oxygen;
+                    for direction in Direction::iter() {
+                        queue.push_back(position + direction.deltas());
+                    }
+                }
+                MapTile::Oxygen | MapTile::Wall => {
+                    // nop: we can't visit walls, and we shouldn't revisit
+                    // oxygenated tiles, so they just get popped off
+                    // the queue.
+                }
+            }
+        }
+
+        // by draining the queue, we prove that there are no more reachable
+        // unknown tiles. hooray!
+        None
+    }
+
     /// navigate to the oxygen system.
     fn find_target(&mut self) -> Option<()> {
         // general strategy:
@@ -248,6 +349,8 @@ impl Droid {
     /// the destination, false if recomputation was required.
     ///
     /// will infinitely loop if the given target is unreachable from the initial position.
+    ///
+    /// panics if the given target is a wall
     fn proceed_to(&mut self, target: Point) -> bool {
         let mut attempt = 0_usize;
 
@@ -360,11 +463,38 @@ impl Droid {
                     MapTile::Unknown => ' ',
                     MapTile::Wall => '#',
                     MapTile::Empty => '.',
+                    MapTile::Oxygen => 'x',
                 });
             }
             out.push('\n');
         }
         out
+    }
+
+    /// discover all reachable tiles
+    fn fill_map(&mut self) {
+        // it's non-trivial to discover all reachable tiles: we can't just keep
+        // attempting to pathfind to the nearest unreachable one, because an
+        // unknown but large quantity of unreachable ones will be beyond the
+        // bounds of the map.
+        //
+        // Instead, we'll take this strategy: in memory, flood-fill the map
+        // from the current position. The first time we discover an unknown
+        // reachable tile, halt and navigate to that tile. Then repeat until no
+        // unknown reachable tiles exist.
+
+        while let Some(position) = self.find_nearest_reachable_unknown() {
+            // find_nearest_reachable_unknown just follows traversable steps,
+            // so it must always be true that we can navigate to a point it returned
+            let path = self.navigate_to(position).unwrap();
+            for step in path {
+                if let Status::HitWall = self.go(step) {
+                    // if we hit a wall on the way to our destination, that's
+                    // fine: let's just keep finding more unknown points
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -382,6 +512,7 @@ enum MapTile {
     Unknown,
     Empty,
     Wall,
+    Oxygen,
 }
 
 impl Default for MapTile {
@@ -410,7 +541,7 @@ impl From<i64> for Status {
 
 /// A* State
 // https://doc.rust-lang.org/std/collections/binary_heap/#examples
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 struct AStarNode {
     cost: u32,
     position: Point,
