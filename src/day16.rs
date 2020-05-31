@@ -1,4 +1,5 @@
 use crate::Exercise;
+use rayon::prelude::*;
 use std::path::Path;
 
 pub struct Day;
@@ -34,21 +35,23 @@ fn as_i8(data: String) -> Vec<i8> {
 
 fn calculate_element<P>(input: &[i8], pattern: P) -> i8
 where
-    P: Iterator<Item = i8>,
+    P: Iterator<Item = i8> + Send,
 {
+
     (input
         .iter()
         .zip(pattern)
+        .par_bridge()
+        .filter(|(_, p)| *p != 0)
         .map(|(i, p)| (*i * p) as i64)
         .sum::<i64>()
         .abs()
-        % 10)
-        as i8
+        % 10) as i8
 }
 
 const BASE_PATTERN: [i8; 4] = [0, 1, 0, -1];
 
-fn pattern_for(idx: usize) -> impl Iterator<Item = i8> + Clone {
+fn pattern_for(idx: usize) -> impl Iterator<Item = i8> {
     BASE_PATTERN
         .iter()
         .map(move |e| std::iter::repeat(*e).take(idx + 1))
@@ -82,8 +85,33 @@ impl Exercise for Day {
         println!("after 100 phases: {}", first_n(&data, 8));
     }
 
-    fn part2(&self, _path: &Path) {
-        unimplemented!()
+    fn part2(&self, path: &Path) {
+        let mut data = read_input(path);
+        let message_offset: usize = first_n(&data, 7).parse().unwrap();
+
+        // I'm not even going to worry about the cost of allocation: we allocate 6.5mb 100 times,
+        // which I suspect will be a very small portion of the total runtime.
+        // It would be great if this were auto-vectorized, but I worry that since
+        // the pattern is an iterator, the compiler might not be smart enough
+        // to do that. Right now, I'm not feeling smart enough to do that, so
+        // I'm just going to turn this on in release mode and see if I can get
+        // a result in reasonable time. In principle, it's just a matter of processing
+        // about 650 Mb of data; even single-threaded, that shouldn't be too
+        // terrible; I'd expect a runtime of under half an hour.
+        data = data
+            .iter()
+            .copied()
+            .cycle()
+            .take(data.len() * 10000)
+            .collect();
+
+        for idx in 0..100 {
+            if idx % 10 == 0 {
+                println!("processed {} phases...", idx);
+            }
+            data = phase(&data);
+        }
+        println!("after 100 phases: {}", first_n(&data[message_offset..], 8));
     }
 }
 
