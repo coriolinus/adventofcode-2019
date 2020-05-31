@@ -69,9 +69,10 @@ impl Exercise for Day {
         // back in part 1. That can be a TODO for later.
         droid.fill_map();
         droid.proceed_to(oxygenator);
-        println!("{}", droid.show_map());
 
-        let mut minutes = 0;
+        // we have to start at -1 because the origin tile should fill at time 0; if this
+        // is initialized at 0, it fills at time 1.
+        let mut minutes = -1;
 
         enum QueueItem {
             TimePasses,
@@ -107,6 +108,7 @@ impl Exercise for Day {
             }
         }
 
+        println!("{}", droid.show_map());
         println!("{} minutes before o2 saturation", minutes);
     }
 }
