@@ -78,6 +78,22 @@ fn phase(input: &[i8]) -> Vec<i8> {
     out
 }
 
+fn phase_shortcut(input: &[i8]) -> Vec<i8> {
+    let mut out = vec![0; input.len()];
+    let mut accumulator = 0;
+    // this pattern only works for the second half of the input. There's probably
+    // another pattern which works for the first half, which would be necessary
+    // in order to reimplement part 1 the fast way, but quite frankly, it's not
+    // worth the time to figure it out.
+    //
+    // Even so, part 2 is a silly amount faster than part 1.
+    for (in_, out) in input.iter().zip(out.iter_mut()).rev().take(input.len() / 2) {
+        accumulator += *in_ as i64;
+        *out = (accumulator % 10) as i8;
+    }
+    out
+}
+
 impl Exercise for Day {
     fn part1(&self, path: &Path) {
         let mut data = read_input(path);
@@ -107,13 +123,13 @@ impl Exercise for Day {
             .take(data.len() * 10000)
             .collect();
 
-        for idx in 0..100 {
-            if idx % 10 == 0 {
-                println!("processed {} phases...", idx);
-            }
-            data = phase(&data);
+        for _ in 0..100 {
+            data = phase_shortcut(&data);
         }
-        println!("after 100 phases: {}", show(&data[..8]));
+        println!(
+            "after 100 phases: {}",
+            show(&data[message_offset..(message_offset + 8)])
+        );
     }
 }
 
