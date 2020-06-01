@@ -5,21 +5,24 @@ use std::path::Path;
 pub struct Day;
 
 fn read_input(path: &Path) -> Vec<i8> {
-    as_i8(std::fs::read_to_string(path).unwrap())
+    let mut data = std::fs::read_to_string(path).unwrap();
+    data.truncate(
+        data.len()
+            - data
+                .as_bytes()
+                .iter()
+                .rev()
+                .take_while(|c| c.is_ascii_whitespace())
+                .count(),
+    );
+
+    as_i8(data)
 }
 
 // this is silly and too-low-level: it makes a lot of assumptions about its input
 // it's fast, though
 fn as_i8(data: String) -> Vec<i8> {
     let mut data = data.into_bytes();
-    data.truncate(
-        data.len()
-            - data
-                .iter()
-                .rev()
-                .take_while(|c| c.is_ascii_whitespace())
-                .count(),
-    );
     for byte in data.iter_mut() {
         // convert each byte from its ascii representation into a u8
         *byte -= b'0';
@@ -33,11 +36,18 @@ fn as_i8(data: String) -> Vec<i8> {
     data_i8
 }
 
+fn show(data: &[i8]) -> String {
+    let mut out = String::with_capacity(data.len());
+    for d in data.iter() {
+        out.push((*d as u8 + b'0') as char);
+    }
+    out
+}
+
 fn calculate_element<P>(input: &[i8], pattern: P) -> i8
 where
     P: Iterator<Item = i8> + Send,
 {
-
     (input
         .iter()
         .zip(pattern)
@@ -68,26 +78,18 @@ fn phase(input: &[i8]) -> Vec<i8> {
     out
 }
 
-fn first_n(data: &[i8], n: usize) -> String {
-    let mut out = String::with_capacity(n);
-    for d in data.iter().take(n) {
-        out.push_str(&d.to_string());
-    }
-    out
-}
-
 impl Exercise for Day {
     fn part1(&self, path: &Path) {
         let mut data = read_input(path);
         for _ in 0..100 {
             data = phase(&data);
         }
-        println!("after 100 phases: {}", first_n(&data, 8));
+        println!("after 100 phases: {}", show(&data[..8]));
     }
 
     fn part2(&self, path: &Path) {
         let mut data = read_input(path);
-        let message_offset: usize = first_n(&data, 7).parse().unwrap();
+        let message_offset: usize = show(&data[..7]).parse().unwrap();
 
         // I'm not even going to worry about the cost of allocation: we allocate 6.5mb 100 times,
         // which I suspect will be a very small portion of the total runtime.
@@ -111,7 +113,7 @@ impl Exercise for Day {
             }
             data = phase(&data);
         }
-        println!("after 100 phases: {}", first_n(&data[message_offset..], 8));
+        println!("after 100 phases: {}", show(&data[..8]));
     }
 }
 
