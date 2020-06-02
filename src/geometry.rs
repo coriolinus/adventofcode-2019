@@ -214,6 +214,14 @@ impl Add<(i32, i32)> for Point {
     }
 }
 
+impl Add<Direction> for Point {
+    type Output = Point;
+
+    fn add(self, direction: Direction) -> Point {
+        self + direction.deltas()
+    }
+}
+
 impl Sub for Point {
     type Output = Point;
 
