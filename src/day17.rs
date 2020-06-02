@@ -49,7 +49,36 @@ impl Exercise for Day {
         println!("sum of alignment params: {}", alignment_params);
     }
 
-    fn part2(&self, _path: &Path) {}
+    fn part2(&self, path: &Path) {
+        let memory = {
+            let mut memory: IntcodeMemory =
+                parse::<CommaSep<Word>>(path).unwrap().flatten().collect();
+            assert_eq!(memory[0], 1, "intcode begins with unexpected instruction");
+            memory[0] = 2;
+            memory
+        };
+
+        let inputs = PART_2_MOVEMENT_LOGIC
+            .as_bytes()
+            .iter()
+            .map(|b| *b as Word)
+            .collect::<Vec<_>>();
+
+        let mut computer = Intcode::new(memory).using_inputs(&inputs);
+        let output = computer.run_collect().unwrap();
+        let (other_output, space_dust) = output.split_at(output.len() - 1);
+        let space_dust = space_dust[0];
+        if cfg!(featur = "debug") {
+            println!(
+                "{}",
+                other_output
+                    .iter()
+                    .map(|c| *c as u8 as char)
+                    .collect::<String>()
+            );
+        }
+        println!("dust collected: {}", space_dust);
+    }
 }
 
 fn is_intersection<D, R>(x: usize, y: usize, data: D) -> bool
@@ -82,3 +111,13 @@ enum Tile {
     Empty,
     Scaffolding,
 }
+
+// I arrived at this pattern by printing out the map and tracing correspondences.
+// While it's certainly possible to figure this out automatically, it would be
+// pretty tough; I did things the simple way this time.
+const PART_2_MOVEMENT_LOGIC: &'static str = "A,C,A,B,B,A,C,B,C,C
+L,8,R,10,L,8,R,8
+L,8,R,6,R,6,R,10,L,8
+L,12,R,8,R,8
+n
+";
