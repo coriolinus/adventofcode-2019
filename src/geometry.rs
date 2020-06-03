@@ -1,7 +1,8 @@
 use lazy_static::lazy_static;
 use regex::Regex;
+use std::convert::TryFrom;
 use std::fmt;
-use std::ops::{Add, AddAssign, Div, Mul, Sub};
+use std::ops::{Add, AddAssign, Div, Index, IndexMut, Mul, Sub};
 use std::str::FromStr;
 
 pub fn follow(traces: &[Trace]) -> Vec<Line> {
@@ -184,7 +185,6 @@ impl Point {
 
 impl From<(usize, usize)> for Point {
     fn from((x, y): (usize, usize)) -> Self {
-        use std::convert::TryFrom;
         Self::new(
             i32::try_from(x).unwrap_or(i32::MAX),
             i32::try_from(y).unwrap_or(i32::MAX),
@@ -346,5 +346,157 @@ impl Add for Vector3 {
             y: self.y + other.y,
             z: self.z + other.z,
         }
+    }
+}
+
+/// A Map keeps track of a tile grid.
+///
+/// It is based on immutable data structures, so is cheap to clone.
+///
+/// Its coordinate system assumes that the origin is in the lower left,
+/// for compatibility with Direction.
+#[derive(Clone)]
+pub struct Map<T> {
+    tiles: im::Vector<T>,
+    width: usize,
+    height: usize,
+}
+
+impl<T: Clone + Default> Map<T> {
+    pub fn new(width: usize, height: usize) -> Map<T> {
+        Map {
+            tiles: vec![T::default(); width * height].into(),
+            width,
+            height,
+        }
+    }
+}
+
+impl<T, R> From<&[R]> for Map<T>
+where
+    T: Clone,
+    R: AsRef<[T]>,
+{
+    /// Convert an input 2d array into a map.
+    ///
+    /// Note that the input array must already be arranged with the y axis
+    /// as the outer array and the origin in the lower left: source[0][0] must be
+    /// the lower left point of the map.
+    ///
+    /// Panics if the input array is not rectangular.
+    fn from(source: &[R]) -> Map<T> {
+        let height = source.len();
+        if height == 0 {
+            return Map {
+                tiles: im::Vector::new(),
+                width: 0,
+                height: 0,
+            };
+        }
+
+        let width = source[0].as_ref().len();
+        assert!(
+            source
+                .as_ref()
+                .iter()
+                .all(|row| row.as_ref().len() == width),
+            "input must be rectangular"
+        );
+
+        let mut map = im::Vector::new();
+        for row in source.iter() {
+            for tile in row.as_ref().iter() {
+                map.push_back(tile.clone());
+            }
+        }
+
+        unimplemented!()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MapConversionErr<T>
+where
+    T: TryFrom<char>,
+    <T as TryFrom<char>>::Error: std::fmt::Debug + Clone + PartialEq + Eq,
+{
+    TileConversion(<T as TryFrom<char>>::Error),
+    NotRectangular,
+}
+
+impl<T> TryFrom<&str> for Map<T>
+where
+    T: Clone + TryFrom<char>,
+    <T as TryFrom<char>>::Error: std::fmt::Debug + Clone + PartialEq + Eq,
+{
+    type Error = MapConversionErr<T>;
+
+    /// the input should be in natural graphical order:
+    /// its first characters are the top left.
+    fn try_from(input: &str) -> Result<Self, Self::Error> {
+        use std::io::BufRead;
+        let mut arr = Vec::new();
+
+        for line in input.as_bytes().lines() {
+            let line = line.unwrap();
+
+            let mut row = Vec::with_capacity(line.len());
+            for ch in line.chars() {
+                row.push(T::try_from(ch).map_err(MapConversionErr::TileConversion)?);
+            }
+            if !row.is_empty() {
+                arr.push(row);
+            }
+        }
+
+        if !arr.is_empty() {
+            let width = arr[0].len();
+            if !arr.iter().all(|row| row.len() == width) {
+                Err(MapConversionErr::NotRectangular)?;
+            }
+        }
+
+        // shift the origin
+        arr.reverse();
+
+        Ok(Map::from(arr.as_slice()))
+    }
+}
+
+impl<T: Clone> Index<(usize, usize)> for Map<T> {
+    type Output = T;
+
+    fn index(&self, (x, y): (usize, usize)) -> &T {
+        self.tiles.index(x + (y * self.width))
+    }
+}
+
+impl<T: Clone> Index<Point> for Map<T> {
+    type Output = T;
+
+    /// Panics if point.x or point.y < 0
+    fn index(&self, point: Point) -> &T {
+        assert!(
+            point.x >= 0 && point.y >= 0,
+            "point must be in the positive quadrant"
+        );
+        self.index((point.x as usize, point.y as usize))
+    }
+}
+
+impl<T: Clone> IndexMut<(usize, usize)> for Map<T> {
+    fn index_mut(&mut self, (x, y): (usize, usize)) -> &mut T {
+        self.tiles.index_mut(x + (y * self.width))
+    }
+}
+
+impl<T: Clone> IndexMut<Point> for Map<T> {
+    /// Panics if point.x or point.y < 0
+    fn index_mut(&mut self, point: Point) -> &mut T {
+        assert!(
+            point.x >= 0 && point.y >= 0,
+            "point must be in the positive quadrant"
+        );
+        self.index_mut((point.x as usize, point.y as usize))
     }
 }
