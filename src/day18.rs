@@ -110,10 +110,14 @@ impl From<Map> for Explorer {
 
 impl Explorer {
     fn visit(mut self) -> Vec<Self> {
+        debug_assert!(
+            self.map[self.position] != Tile::Wall
+                && self.map[self.position] != Tile::Visited
+                && !matches!(self.map[self.position], Tile::Door(_)),
+            "we check the neighbors before visiting"
+        );
         match self.map[self.position] {
-            Tile::Wall | Tile::Visited | Tile::Door(_) => {
-                return Vec::new();
-            }
+            Tile::Wall | Tile::Visited | Tile::Door(_) => unreachable!("neighbor precheck fail"),
             Tile::Empty | Tile::Entrance => self.map[self.position] = Tile::Visited,
             Tile::Key(key) => {
                 self.map[self.position] = Tile::Visited;
@@ -129,9 +133,15 @@ impl Explorer {
 
         let mut out = Vec::with_capacity(4);
         for direction in Direction::iter() {
-            let mut successor = self.clone();
-            successor.position = successor.position + direction;
-            out.push(successor);
+            let neighbor = self.map[self.position + direction];
+            match neighbor {
+                Tile::Empty | Tile::Entrance | Tile::Key(_) => {
+                    let mut successor = self.clone();
+                    successor.position = successor.position + direction;
+                    out.push(successor);
+                }
+                _ => {}
+            }
         }
         out
     }

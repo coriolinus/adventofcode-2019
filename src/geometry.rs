@@ -410,7 +410,11 @@ where
             }
         }
 
-        Map { tiles, width, height }
+        Map {
+            tiles,
+            width,
+            height,
+        }
     }
 }
 
