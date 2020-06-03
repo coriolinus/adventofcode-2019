@@ -590,14 +590,26 @@ impl<T: Clone + Into<char>> fmt::Display for Map<T> {
 }
 
 impl<T: Clone> Map<T> {
-    pub fn for_each<F>(&mut self, update: F)
+    pub fn for_each<F>(&self, visit: F) where F: FnMut(&T) {
+        self.tiles.iter().for_each(visit);
+    }
+
+    pub fn for_each_mut<F>(&mut self, update: F)
     where
         F: FnMut(&mut T),
     {
         self.tiles.iter_mut().for_each(update);
     }
 
-    pub fn for_each_point<F>(&mut self, mut update: F)
+    pub fn for_each_point<F>(&self, mut visit: F) where F: FnMut(&T, Point) {
+        for y in 0..self.height {
+            for x in 0..self.width {
+                visit(self.index((x, y)), (x, y).into());
+            }
+        }
+    }
+
+    pub fn for_each_point_mut<F>(&mut self, mut update: F)
     where
         F: FnMut(&mut T, Point),
     {

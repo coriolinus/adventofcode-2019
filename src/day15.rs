@@ -1,20 +1,16 @@
 use crate::{
     ddbg,
-    geometry::{Direction, Point},
+    geometry::{Direction, Map as GenericMap, Point, Traversable},
     intcode::{channel, Intcode, IntcodeMemory, Word},
     parse, CommaSep, Exercise,
 };
 use crossbeam_channel::{Receiver, Sender};
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap, VecDeque};
+use std::collections::{VecDeque};
 use std::path::Path;
 use std::thread;
 
 const MAP_DIMENSION: usize = 128;
-
-fn out_of_bounds(point: Point) -> bool {
-    point.x < 0 || point.y < 0 || point.x >= MAP_DIMENSION as i32 || point.y >= MAP_DIMENSION as i32
-}
 
 pub struct Day;
 
@@ -44,7 +40,7 @@ impl Exercise for Day {
         {
             println!("target location: {:?}", droid.position);
             println!("{}", droid.show_map());
-            println!("route to origin: {:#?}", droid.navigate_to(droid.origin));
+            println!("route to origin: {:#?}", droid.map.navigate(droid.position, droid.origin));
         }
         let oxygenator = droid.position;
         // it turns out to be _much_ faster to intentionally fill the map
@@ -86,12 +82,12 @@ impl Exercise for Day {
 
         while let Some(qi) = queue.pop_front() {
             match qi {
-                Position(position) => match droid.tile(position).unwrap() {
+                Position(position) => match droid.map[position] {
                     MapTile::Unknown => unreachable!("we're in an explored maze"),
                     MapTile::Empty => {
-                        *droid.tile_mut(position).unwrap() = MapTile::Oxygen;
+                        droid.map[position] = MapTile::Oxygen;
                         for direction in Direction::iter() {
-                            queue.push_back(Position(position + direction.deltas()));
+                            queue.push_back(Position(position + direction));
                         }
                     }
                     MapTile::Wall | MapTile::Oxygen => {
@@ -114,7 +110,7 @@ impl Exercise for Day {
 }
 
 struct Droid {
-    map: [[MapTile; MAP_DIMENSION]; MAP_DIMENSION],
+    map: Map,
     origin: Point,
     position: Point,
     controller: Sender<i64>,
@@ -125,204 +121,50 @@ impl Droid {
     fn new(controller: Sender<i64>, sensor: Receiver<i64>) -> Self {
         let origin = Point::new((MAP_DIMENSION / 2) as i32, (MAP_DIMENSION / 2) as i32);
         let mut droid = Droid {
-            map: [[MapTile::default(); MAP_DIMENSION]; MAP_DIMENSION],
+            map: Map::new(MAP_DIMENSION, MAP_DIMENSION),
             origin,
             position: origin,
             controller,
             sensor,
         };
-        *droid.tile_mut(droid.position).unwrap() = MapTile::Empty;
+        droid.map[droid.position] = MapTile::Empty;
         droid
     }
 
-    fn tile(&self, point: Point) -> Option<&MapTile> {
-        if out_of_bounds(point) {
-            return None;
-        }
-        Some(&self.map[point.y as usize][point.x as usize])
-    }
-
-    fn tile_mut(&mut self, point: Point) -> Option<&mut MapTile> {
-        if out_of_bounds(point) {
-            return None;
-        }
-        Some(&mut self.map[point.y as usize][point.x as usize])
-    }
 
     fn go(&mut self, direction: Direction) -> Status {
         self.controller.send(movement_command(direction)).unwrap();
         let status: Status = self.sensor.recv().unwrap().into();
         let destination_tile = self.position + direction.deltas();
-        match (self.tile(destination_tile), status) {
-            (None, _) => unreachable!("should never drive off the map"),
-            (Some(MapTile::Wall), _) => {
+        match (self.map[destination_tile], status) {
+            (MapTile::Wall, _) => {
                 unreachable!("should never intentionally drive into a wall")
             }
-            (Some(MapTile::Empty), Status::HitWall) | (Some(MapTile::Oxygen), Status::HitWall) => {
+            (MapTile::Empty, Status::HitWall) | (MapTile::Oxygen, Status::HitWall) => {
                 unreachable!("unreliable cartography! aborting")
             }
-            (Some(MapTile::Unknown), Status::HitWall) => {
-                *self.tile_mut(destination_tile).unwrap() = MapTile::Wall;
+            (MapTile::Unknown, Status::HitWall) => {
+                self.map[destination_tile] = MapTile::Wall;
             }
             (_, Status::Moved) | (_, Status::FoundTarget) => {
                 self.position = destination_tile;
-                *self.tile_mut(self.position).unwrap() = MapTile::Empty;
+                self.map[self.position] = MapTile::Empty;
             }
         }
         status
     }
 
-    /// navigate to the target point using A*
-    // https://en.wikipedia.org/wiki/A*_search_algorithm#Pseudocode
-    fn navigate_to(&self, target: Point) -> Option<Vec<Direction>> {
-        let initial = AStarNode {
-            cost: 0,
-            position: self.position,
-        };
-        let mut open_set = BinaryHeap::new();
-        open_set.push(initial);
-
-        // key: node
-        // value: node preceding it on the cheapest known path from start
-        let mut came_from = HashMap::new();
-
-        // gscore
-        // key: position
-        // value: cost of cheapest path from start to node
-        let mut cheapest_path_cost = HashMap::new();
-        cheapest_path_cost.insert(self.position, 0_u32);
-
-        // fscore
-        // key: position
-        // value: best guess as to total cost from here to finish
-        let mut total_cost_guess = HashMap::new();
-        total_cost_guess.insert(self.position, (target - self.position).manhattan() as u32);
-
-        while let Some(AStarNode { cost, position }) = open_set.pop() {
-            if position == target {
-                let mut current = position;
-                let mut path = Vec::new();
-                while let Some((direction, predecessor)) = came_from.remove(&current) {
-                    current = predecessor;
-                    path.push(direction);
-                }
-                path.reverse();
-                return Some(path);
-            }
-
-            for direction in Direction::iter() {
-                let neighbor = position + direction.deltas();
-                match self.tile(neighbor) {
-                    Some(MapTile::Wall) => {} // walls aren't neighbors; continue
-                    None => {}                // don't explore off the map; continue
-                    Some(_) => {
-                        let tentative_cheapest_path_cost = cost + 1;
-                        if tentative_cheapest_path_cost
-                            < cheapest_path_cost
-                                .get(&neighbor)
-                                .cloned()
-                                .unwrap_or(u32::MAX)
-                        {
-                            // this path to the neighbor is better than any previous one
-                            came_from.insert(neighbor, (direction, position));
-                            cheapest_path_cost.insert(neighbor, tentative_cheapest_path_cost);
-                            total_cost_guess.insert(
-                                neighbor,
-                                tentative_cheapest_path_cost
-                                    + (target - neighbor).manhattan() as u32,
-                            );
-
-                            // this thing with the iterator is not very efficient, but for some weird reason BinaryHeap
-                            // doesn't have a .contains method; see
-                            // https://github.com/rust-lang/rust/issues/66724
-                            if open_set
-                                .iter()
-                                .find(|elem| elem.position == neighbor)
-                                .is_none()
-                            {
-                                open_set.push(AStarNode {
-                                    cost: tentative_cheapest_path_cost,
-                                    position: neighbor,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
-    fn spiral_out_from_current_position(&self) -> impl Iterator<Item = Point> {
-        let mut direction = Direction::Up;
-        let mut steps = 0;
-        let mut edge_len = 1;
-        let mut second = false;
-        std::iter::successors(Some(self.position), move |prev| {
-            let next = *prev + direction.deltas();
-            steps += 1;
-            if steps == edge_len {
-                direction = direction.turn_right();
-                steps = 0;
-                if second {
-                    edge_len += 1;
-                }
-                second = !second;
-            }
-            Some(next)
-        })
-        // in the worst case, where we start in the bottom right corner
-        // and the last unknown tile is in the top right corner,
-        // we have to examine 4 * the total dimensions of the map to be sure we've inspected every possible tile
-        .take(MAP_DIMENSION * MAP_DIMENSION * 4)
-        .filter(|point| !out_of_bounds(*point))
-    }
-
-    fn find_nearest_unknown(&self) -> Option<Point> {
-        self.spiral_out_from_current_position()
-            .map(|point| (point, self.tile(point)))
-            .find(|(_, tile)| tile.cloned() == Some(MapTile::Unknown))
-            .map(|(point, _)| point)
-    }
-
     fn find_nearest_reachable_unknown(&self) -> Option<Point> {
-        // first things first, make a copy of the map to work on. We're going to
-        // be marking previously-visited tiles as oxygenated, because it's a
-        // convenient label to use, but we don't want to actually edit the
-        // internal map at all.
-        let mut map = self.map.clone();
-
-        // we need a queue of tiles to visit
-        let mut queue = VecDeque::new();
-        queue.push_back(self.position);
-
-        // now, we can start flood-filling the map with oxygen representing
-        // discovered areas. As soon as we find a reachable unknown area,
-        // we break out of the discovery loop and navigate the physical
-        // robot to it, then restart the process.
-        while let Some(position) = queue.pop_front() {
-            match map[position.y as usize][position.x as usize] {
-                MapTile::Unknown => {
-                    return Some(position);
-                }
-                MapTile::Empty => {
-                    map[position.y as usize][position.x as usize] = MapTile::Oxygen;
-                    for direction in Direction::iter() {
-                        queue.push_back(position + direction.deltas());
-                    }
-                }
-                MapTile::Oxygen | MapTile::Wall => {
-                    // nop: we can't visit walls, and we shouldn't revisit
-                    // oxygenated tiles, so they just get popped off
-                    // the queue.
-                }
+        let mut unknown = None;
+        self.map.reachable_from(self.position, |tile, position| {
+            if *tile == MapTile::Unknown {
+                unknown = Some(position);
+                true
+            } else {
+                false
             }
-        }
-
-        // by draining the queue, we prove that there are no more reachable
-        // unknown tiles. hooray!
-        None
+        });
+        unknown
     }
 
     /// navigate to the oxygen system.
@@ -333,8 +175,8 @@ impl Droid {
         // 3. is it the target?
         // 4. if not: repeat
         loop {
-            let nearest_unknown = self.find_nearest_unknown()?;
-            let path = self.navigate_to(nearest_unknown)?;
+            let nearest_unknown = self.find_nearest_reachable_unknown()?;
+            let path = self.map.navigate(self.position, nearest_unknown)?;
             for direction in path {
                 let status = self.go(direction);
                 match status {
@@ -357,7 +199,7 @@ impl Droid {
         let mut attempt = 0_usize;
 
         while self.position != target {
-            for step in self.navigate_to(target).unwrap() {
+            for step in self.map.navigate(self.position, target).unwrap() {
                 if self.go(step) == Status::HitWall {
                     attempt += 1;
                     break;
@@ -424,7 +266,7 @@ impl Droid {
             initial_position, self.position,
             "postcondition wasn't upheld!"
         );
-        self.navigate_to(self.origin).unwrap()
+        self.map.navigate(self.position, self.origin).unwrap()
     }
 
     fn show_map(&self) -> String {
@@ -433,16 +275,14 @@ impl Droid {
         let mut max_x = 0;
         let mut max_y = 0;
 
-        for (y, row) in self.map.iter().enumerate() {
-            for (x, tile) in row.iter().enumerate() {
-                if *tile != MapTile::Unknown {
-                    min_x = min_x.min(x);
-                    min_y = min_y.min(y);
-                    max_x = max_x.max(x);
-                    max_y = max_y.max(y);
-                }
+        self.map.for_each_point(|tile, point| {
+            if *tile != MapTile::Unknown {
+                min_x = min_x.min(point.x as usize);
+                min_y = min_y.min(point.y as usize);
+                max_x = max_x.max(point.x as usize);
+                max_y = max_y.max(point.y as usize);
             }
-        }
+        });
 
         // from the bounds, we know the capacity we need
         // note that we add a column: newlines at the end of each row
@@ -451,17 +291,18 @@ impl Droid {
 
         // iterate the rows backwards: in AoC, the origin is at the lower
         // left corner of the map
-        for (y, row) in self.map[min_y..=max_y].iter().enumerate().rev() {
-            for (x, tile) in row[min_x..=max_x].iter().enumerate() {
-                if self.position == Point::new((x + min_x) as i32, (y + min_y) as i32) {
+        for y in (min_y..=max_y).rev() {
+            for x in min_x..=max_x {
+                let point = Point::from((x, y));
+                if point == self.position {
                     out.push('D');
                     continue;
                 }
-                if self.origin == Point::from((x + min_x, y + min_y)) {
+                if point == self.origin {
                     out.push('O');
                     continue;
                 }
-                out.push(match tile {
+                out.push(match self.map[point] {
                     MapTile::Unknown => ' ',
                     MapTile::Wall => '#',
                     MapTile::Empty => '.',
@@ -488,7 +329,7 @@ impl Droid {
         while let Some(position) = self.find_nearest_reachable_unknown() {
             // find_nearest_reachable_unknown just follows traversable steps,
             // so it must always be true that we can navigate to a point it returned
-            let path = self.navigate_to(position).unwrap();
+            let path = self.map.navigate(self.position, position).unwrap();
             for step in path {
                 if let Status::HitWall = self.go(step) {
                     // if we hit a wall on the way to our destination, that's
@@ -517,9 +358,24 @@ enum MapTile {
     Oxygen,
 }
 
+type Map = GenericMap<MapTile>;
+
 impl Default for MapTile {
     fn default() -> Self {
         MapTile::Unknown
+    }
+}
+
+impl From<MapTile> for Traversable {
+    fn from(tile: MapTile) -> Traversable {
+        use MapTile::*;
+        use Traversable::*;
+        match tile {
+            Unknown => Free,
+            Empty => Free,
+            Wall => Obstructed,
+            Oxygen => Free,
+        }
     }
 }
 
