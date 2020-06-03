@@ -1,5 +1,7 @@
+use bitvec::bitvec;
 use lazy_static::lazy_static;
 use regex::Regex;
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::convert::TryFrom;
 use std::fmt;
 use std::ops::{Add, AddAssign, Div, Index, IndexMut, Mul, Sub};
@@ -604,5 +606,179 @@ impl<T: Clone> Map<T> {
                 update(self.index_mut((x, y)), (x, y).into());
             }
         }
+    }
+
+    pub fn in_bounds(&self, point: Point) -> bool {
+        use std::convert::TryInto;
+        point.x >= 0
+            && point.y >= 0
+            && point.x < self.width.try_into().unwrap_or(i32::MAX)
+            && point.y < self.height.try_into().unwrap_or(i32::MAX)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// Can a visitor move through this map tile?
+pub enum Traversable {
+    /// Obstructed tiles cannot be moved into.
+    Obstructed,
+    /// Free tiles can be moved through.
+    Free,
+    /// Halt tiles can be moved into, but not past.
+    Halt,
+}
+
+impl<T: Clone + Into<Traversable>> Map<T> {
+    /// Visit every non-obstructed tile reachable from the initial point.
+    ///
+    /// If the visitor ever returns true, processing halts and no further
+    /// points are visited.
+    pub fn reachable_from<F>(&self, point: Point, mut visit: F)
+    where
+        F: FnMut(&T, Point) -> bool,
+    {
+        let mut visited = bitvec!(0; self.tiles.len());
+        let mut queue = VecDeque::new();
+        queue.push_back(point);
+
+        let idx = |point: Point| point.x as usize + (point.y as usize * self.width);
+
+        while let Some(point) = queue.pop_front() {
+            // we may have scheduled a single point more than once via alternate paths;
+            // we should only actually visit once.
+            if visited[idx(point)] {
+                continue;
+            }
+
+            visited.set(idx(point), true);
+            let traversable = self[point].clone().into();
+            if traversable != Traversable::Obstructed {
+                if visit(&self[point], point) {
+                    break;
+                }
+            }
+
+            if traversable == Traversable::Free {
+                for direction in Direction::iter() {
+                    let neighbor = point + direction;
+                    if !visited[idx(neighbor)] {
+                        queue.push_back(neighbor);
+                    }
+                }
+            }
+        }
+    }
+
+    /// navigate between the given points using A*
+    // https://en.wikipedia.org/wiki/A*_search_algorithm#Pseudocode
+    pub fn navigate(&self, from: Point, to: Point) -> Option<Vec<Direction>> {
+        let initial = AStarNode {
+            cost: 0,
+            position: from,
+        };
+        let mut open_set = BinaryHeap::new();
+        open_set.push(initial);
+
+        // key: node
+        // value: node preceding it on the cheapest known path from start
+        let mut came_from = HashMap::new();
+
+        // gscore
+        // key: position
+        // value: cost of cheapest path from start to node
+        let mut cheapest_path_cost = HashMap::new();
+        cheapest_path_cost.insert(from, 0_u32);
+
+        // fscore
+        // key: position
+        // value: best guess as to total cost from here to finish
+        let mut total_cost_guess = HashMap::new();
+        total_cost_guess.insert(from, (to - from).manhattan() as u32);
+
+        while let Some(AStarNode { cost, position }) = open_set.pop() {
+            if position == to {
+                let mut current = position;
+                let mut path = Vec::new();
+                while let Some((direction, predecessor)) = came_from.remove(&current) {
+                    current = predecessor;
+                    path.push(direction);
+                }
+                path.reverse();
+                return Some(path);
+            }
+
+            for direction in Direction::iter() {
+                let neighbor = position + direction;
+                if !self.in_bounds(neighbor) {
+                    continue;
+                }
+                match self[neighbor].clone().into() {
+                    Traversable::Obstructed => {}
+                    Traversable::Free | Traversable::Halt => {
+                        let tentative_cheapest_path_cost = cost + 1;
+                        if tentative_cheapest_path_cost
+                            < cheapest_path_cost
+                                .get(&neighbor)
+                                .cloned()
+                                .unwrap_or(u32::MAX)
+                        {
+                            // this path to the neighbor is better than any previous one
+                            came_from.insert(neighbor, (direction, position));
+                            cheapest_path_cost.insert(neighbor, tentative_cheapest_path_cost);
+                            total_cost_guess.insert(
+                                neighbor,
+                                tentative_cheapest_path_cost + (to - neighbor).manhattan() as u32,
+                            );
+
+                            // this thing with the iterator is not very efficient, but for some weird reason BinaryHeap
+                            // doesn't have a .contains method; see
+                            // https://github.com/rust-lang/rust/issues/66724
+                            if open_set
+                                .iter()
+                                .find(|elem| elem.position == neighbor)
+                                .is_none()
+                            {
+                                open_set.push(AStarNode {
+                                    cost: tentative_cheapest_path_cost,
+                                    position: neighbor,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+}
+
+/// A* State
+// https://doc.rust-lang.org/std/collections/binary_heap/#examples
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+struct AStarNode {
+    cost: u32,
+    position: Point,
+}
+
+// The priority queue depends on `Ord`.
+// Explicitly implement the trait so the queue becomes a min-heap
+// instead of a max-heap.
+impl Ord for AStarNode {
+    fn cmp(&self, other: &AStarNode) -> std::cmp::Ordering {
+        // Notice that the we flip the ordering on costs.
+        // In case of a tie we compare positions - this step is necessary
+        // to make implementations of `PartialEq` and `Ord` consistent.
+        other
+            .cost
+            .cmp(&self.cost)
+            .then_with(|| self.position.cmp(&other.position))
+    }
+}
+
+// `PartialOrd` needs to be implemented as well.
+impl PartialOrd for AStarNode {
+    fn partial_cmp(&self, other: &AStarNode) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
