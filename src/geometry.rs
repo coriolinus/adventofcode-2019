@@ -355,8 +355,8 @@ impl Add for Vector3 {
 ///
 /// Its coordinate system assumes that the origin is in the lower left,
 /// for compatibility with Direction.
-#[derive(Clone)]
-pub struct Map<T> {
+#[derive(Clone, Default)]
+pub struct Map<T: Clone> {
     tiles: im::Vector<T>,
     width: usize,
     height: usize,
@@ -380,8 +380,8 @@ where
     /// Convert an input 2d array into a map.
     ///
     /// Note that the input array must already be arranged with the y axis
-    /// as the outer array and the origin in the lower left: source[0][0] must be
-    /// the lower left point of the map.
+    /// as the outer array and the orientation such that source[0][0] is the
+    /// lower left corner of the map.
     ///
     /// Panics if the input array is not rectangular.
     fn from(source: &[R]) -> Map<T> {
@@ -403,14 +403,14 @@ where
             "input must be rectangular"
         );
 
-        let mut map = im::Vector::new();
+        let mut tiles = im::Vector::new();
         for row in source.iter() {
             for tile in row.as_ref().iter() {
-                map.push_back(tile.clone());
+                tiles.push_back(tile.clone());
             }
         }
 
-        unimplemented!()
+        Map { tiles, width, height }
     }
 }
 
@@ -424,20 +424,47 @@ where
     NotRectangular,
 }
 
-impl<T> TryFrom<&str> for Map<T>
+impl<T> fmt::Display for MapConversionErr<T>
+where
+    T: TryFrom<char>,
+    <T as TryFrom<char>>::Error: std::fmt::Debug + Clone + PartialEq + Eq,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::TileConversion(err) => write!(f, "{:?}", err),
+            Self::NotRectangular => write!(f, "maps must be rectangular"),
+        }
+    }
+}
+
+impl<T> std::error::Error for MapConversionErr<T>
+where
+    T: fmt::Debug + TryFrom<char>,
+    <T as TryFrom<char>>::Error: std::fmt::Debug + Clone + PartialEq + Eq,
+{
+}
+
+impl<T> Map<T>
 where
     T: Clone + TryFrom<char>,
     <T as TryFrom<char>>::Error: std::fmt::Debug + Clone + PartialEq + Eq,
 {
-    type Error = MapConversionErr<T>;
-
-    /// the input should be in natural graphical order:
-    /// its first characters are the top left.
-    fn try_from(input: &str) -> Result<Self, Self::Error> {
-        use std::io::BufRead;
+    // we actually impl<T, R> TryFrom<R> for Map<T> because there's a
+    // coherence conflict with the stdlib blanket impl
+    //
+    //   impl<T, U> std::convert::TryFrom<U> for T where U: std::convert::Into<T>;
+    //
+    // Because there's a chance that R also implements Into<Map<T>>, we can't do it.
+    //
+    // That doesn't stop us from doing it here, and implementing the official trait for
+    // a few concrete types
+    fn try_from<R>(input: R) -> Result<Self, MapConversionErr<T>>
+    where
+        R: std::io::BufRead,
+    {
         let mut arr = Vec::new();
 
-        for line in input.as_bytes().lines() {
+        for line in input.lines() {
             let line = line.unwrap();
 
             let mut row = Vec::with_capacity(line.len());
@@ -460,6 +487,49 @@ where
         arr.reverse();
 
         Ok(Map::from(arr.as_slice()))
+    }
+}
+
+impl<T> TryFrom<&str> for Map<T>
+where
+    T: Clone + TryFrom<char>,
+    <T as TryFrom<char>>::Error: std::fmt::Debug + Clone + PartialEq + Eq,
+{
+    type Error = MapConversionErr<T>;
+
+    /// the input should be in natural graphical order:
+    /// its first characters are the top left.
+    fn try_from(input: &str) -> Result<Self, Self::Error> {
+        <Self>::try_from(input.as_bytes())
+    }
+}
+
+impl<T> TryFrom<std::fs::File> for Map<T>
+where
+    T: Clone + TryFrom<char>,
+    <T as TryFrom<char>>::Error: std::fmt::Debug + Clone + PartialEq + Eq,
+{
+    type Error = MapConversionErr<T>;
+
+    /// the input should be in natural graphical order:
+    /// its first characters are the top left.
+    fn try_from(input: std::fs::File) -> Result<Self, Self::Error> {
+        <Self>::try_from(std::io::BufReader::new(input))
+    }
+}
+
+impl<T> TryFrom<&std::path::Path> for Map<T>
+where
+    T: 'static + fmt::Debug + Clone + TryFrom<char>,
+    <T as TryFrom<char>>::Error: Send + Sync + std::fmt::Debug + Clone + PartialEq + Eq,
+{
+    type Error = std::io::Error;
+
+    /// the input should be in natural graphical order:
+    /// its first characters are the top left.
+    fn try_from(path: &std::path::Path) -> Result<Self, Self::Error> {
+        <Self as TryFrom<std::fs::File>>::try_from(std::fs::File::open(path)?)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, Box::new(e)))
     }
 }
 
@@ -498,5 +568,37 @@ impl<T: Clone> IndexMut<Point> for Map<T> {
             "point must be in the positive quadrant"
         );
         self.index_mut((point.x as usize, point.y as usize))
+    }
+}
+
+impl<T: Clone + Into<char>> fmt::Display for Map<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for y in (0..self.height).rev() {
+            for x in 0..self.width {
+                write!(f, "{}", self[(x, y)].clone().into())?;
+            }
+            write!(f, "\n")?;
+        }
+        Ok(())
+    }
+}
+
+impl<T: Clone> Map<T> {
+    pub fn for_each<F>(&mut self, update: F)
+    where
+        F: FnMut(&mut T),
+    {
+        self.tiles.iter_mut().for_each(update);
+    }
+
+    pub fn for_each_point<F>(&mut self, mut update: F)
+    where
+        F: FnMut(&mut T, Point),
+    {
+        for y in 0..self.height {
+            for x in 0..self.width {
+                update(self.index_mut((x, y)), (x, y).into());
+            }
+        }
     }
 }

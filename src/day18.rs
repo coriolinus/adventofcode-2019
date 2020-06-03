@@ -1,17 +1,16 @@
 use crate::{
-    geometry::{Direction, Point},
+    geometry::{Direction, Map as GenericMap, Point},
     Exercise,
 };
 use std::collections::{HashSet, VecDeque};
-use std::fs::File;
-use std::io::{prelude::*, BufReader};
+use std::convert::TryFrom;
 use std::path::Path;
 
 pub struct Day;
 
 impl Exercise for Day {
     fn part1(&self, path: &Path) {
-        let explorer = Explorer::from_input(path);
+        let explorer = Explorer::from(Map::try_from(path).unwrap());
         println!(
             "steps to claim all keys: {}",
             explorer.explore_until_all_keys_claimed()
@@ -30,11 +29,49 @@ enum Tile {
     Door(char),
     Key(char),
     Visited,
+    Entrance,
+}
+
+type Map = GenericMap<Tile>;
+
+impl Default for Tile {
+    fn default() -> Self {
+        Tile::Empty
+    }
+}
+
+impl TryFrom<char> for Tile {
+    type Error = String;
+
+    fn try_from(c: char) -> Result<Self, Self::Error> {
+        match c {
+            '#' => Ok(Tile::Wall),
+            '.' => Ok(Tile::Empty),
+            'A'..='Z' => Ok(Tile::Door(c)),
+            'a'..='z' => Ok(Tile::Key(c)),
+            '@' => Ok(Tile::Entrance),
+            _ => Err(format!("invalid tile: {}", c)),
+        }
+    }
+}
+
+impl From<Tile> for char {
+    fn from(t: Tile) -> char {
+        use Tile::*;
+        match t {
+            Wall => '#',
+            Empty => '.',
+            Door(c) => c,
+            Key(c) => c,
+            Visited => '_',
+            Entrance => '@',
+        }
+    }
 }
 
 #[derive(Default, Clone)]
 struct Explorer {
-    map: Vec<Vec<Tile>>,
+    map: Map,
     entrance: Point,
     position: Point,
     steps: usize,
@@ -51,79 +88,36 @@ impl std::fmt::Debug for Explorer {
     }
 }
 
-impl Explorer {
-    fn from_buffered<B: BufRead>(reader: B) -> Explorer {
+impl From<Map> for Explorer {
+    fn from(mut map: Map) -> Explorer {
         let mut explorer = Explorer::default();
 
-        for (y, line) in reader.lines().enumerate() {
-            let line = line.unwrap();
-            if line.is_empty() {
-                continue;
+        map.for_each_point(|tile: &mut Tile, point: Point| match *tile {
+            Tile::Entrance => {
+                explorer.entrance = point;
+                explorer.position = point;
             }
-
-            let mut row = Vec::with_capacity(line.len());
-            for (x, ch) in line.chars().enumerate() {
-                match ch {
-                    '#' => row.push(Tile::Wall),
-                    '.' => row.push(Tile::Empty),
-                    'A'..='Z' => row.push(Tile::Door(ch)),
-                    'a'..='z' => {
-                        row.push(Tile::Key(ch));
-                        explorer.unclaimed_keys.insert(ch);
-                    }
-                    '@' => {
-                        row.push(Tile::Empty);
-                        explorer.entrance = Point::from((x, y));
-                        explorer.position = explorer.entrance;
-                    }
-                    _ => unreachable!("invalid input map"),
-                }
+            Tile::Key(k) => {
+                explorer.unclaimed_keys.insert(k);
             }
-            explorer.map.push(row);
-        }
+            _ => {}
+        });
 
+        explorer.map = map;
         explorer
     }
+}
 
-    fn from_input(path: &Path) -> Explorer {
-        let file = File::open(path).unwrap();
-        let reader = BufReader::new(file);
-        Self::from_buffered(reader)
-    }
-
-    #[cfg(test)]
-    fn from_str(input: &str) -> Explorer {
-        Self::from_buffered(input.as_bytes())
-    }
-
-    fn tile(&self) -> Tile {
-        self.map[self.position.y as usize][self.position.x as usize]
-    }
-
-    fn tile_mut(&mut self) -> &mut Tile {
-        &mut self.map[self.position.y as usize][self.position.x as usize]
-    }
-
-    fn tiles<F>(&mut self, update: F)
-    where
-        F: Fn(&mut Tile),
-    {
-        for row in self.map.iter_mut() {
-            for tile in row.iter_mut() {
-                update(tile);
-            }
-        }
-    }
-
+impl Explorer {
     fn visit(mut self) -> Vec<Self> {
-        match self.tile() {
+        match self.map[self.position] {
             Tile::Wall | Tile::Visited | Tile::Door(_) => {
                 return Vec::new();
             }
-            Tile::Empty => *self.tile_mut() = Tile::Visited,
+            Tile::Empty | Tile::Entrance => self.map[self.position] = Tile::Visited,
             Tile::Key(key) => {
-                *self.tile_mut() = Tile::Visited;
-                self.tiles(|tile| {
+                self.map[self.position] = Tile::Visited;
+                self.map.for_each(|tile| {
                     if *tile == Tile::Door(key.to_ascii_uppercase()) || *tile == Tile::Visited {
                         *tile = Tile::Empty;
                     }
@@ -170,7 +164,7 @@ mod tests {
 #########
 "
         .trim();
-        let explorer = Explorer::from_str(input);
+        let explorer = Explorer::from(Map::try_from(input).unwrap());
         assert_eq!(explorer.explore_until_all_keys_claimed(), 8);
     }
 
@@ -184,7 +178,7 @@ mod tests {
 ########################
 "
         .trim();
-        let explorer = Explorer::from_str(input);
+        let explorer = Explorer::from(Map::try_from(input).unwrap());
         assert_eq!(explorer.explore_until_all_keys_claimed(), 86);
     }
 }
