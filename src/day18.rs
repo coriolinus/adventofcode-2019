@@ -1,8 +1,8 @@
 use crate::{
-    geometry::{Direction, Map as GenericMap, Point},
+    geometry::{Map as GenericMap, Point, Traversable},
     Exercise,
 };
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::convert::TryFrom;
 use std::path::Path;
 
@@ -28,8 +28,21 @@ enum Tile {
     Empty,
     Door(char),
     Key(char),
-    Visited,
     Entrance,
+}
+
+impl From<Tile> for Traversable {
+    fn from(tile: Tile) -> Traversable {
+        use Tile::*;
+
+        match tile {
+            Wall => Traversable::Obstructed,
+            Empty => Traversable::Free,
+            Door(_) => Traversable::Obstructed,
+            Key(_) => Traversable::Halt,
+            Entrance => Traversable::Free,
+        }
+    }
 }
 
 type Map = GenericMap<Tile>;
@@ -63,7 +76,6 @@ impl From<Tile> for char {
             Empty => '.',
             Door(c) => c,
             Key(c) => c,
-            Visited => '_',
             Entrance => '@',
         }
     }
@@ -75,30 +87,22 @@ struct Explorer {
     entrance: Point,
     position: Point,
     steps: usize,
-    unclaimed_keys: HashSet<char>,
 }
 
 impl std::fmt::Debug for Explorer {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(
-            f,
-            "Explorer {{ position: {:?}, unclaimed_keys: {:?}, .. }}",
-            self.position, self.unclaimed_keys
-        )
+        write!(f, "Explorer {{ position: {:?}, .. }}", self.position,)
     }
 }
 
 impl From<Map> for Explorer {
-    fn from(mut map: Map) -> Explorer {
+    fn from(map: Map) -> Explorer {
         let mut explorer = Explorer::default();
 
-        map.for_each_point(|tile: &mut Tile, point: Point| match *tile {
+        map.for_each_point(|tile: &Tile, point: Point| match *tile {
             Tile::Entrance => {
                 explorer.entrance = point;
                 explorer.position = point;
-            }
-            Tile::Key(k) => {
-                explorer.unclaimed_keys.insert(k);
             }
             _ => {}
         });
@@ -109,56 +113,52 @@ impl From<Map> for Explorer {
 }
 
 impl Explorer {
-    fn visit(mut self) -> Vec<Self> {
-        debug_assert!(
-            self.map[self.position] != Tile::Wall
-                && self.map[self.position] != Tile::Visited
-                && !matches!(self.map[self.position], Tile::Door(_)),
-            "we check the neighbors before visiting"
-        );
-        match self.map[self.position] {
-            Tile::Wall | Tile::Visited | Tile::Door(_) => unreachable!("neighbor precheck fail"),
-            Tile::Empty | Tile::Entrance => self.map[self.position] = Tile::Visited,
-            Tile::Key(key) => {
-                self.map[self.position] = Tile::Visited;
-                self.map.for_each(|tile| {
-                    if *tile == Tile::Door(key.to_ascii_uppercase()) || *tile == Tile::Visited {
+    fn visit(&self) -> Vec<Explorer> {
+        let mut reachable_keys = HashMap::new();
+        self.map.reachable_from(self.position, |tile, position| {
+            if let Tile::Key(key) = *tile {
+                reachable_keys.insert(key, position);
+            }
+            false
+        });
+
+        reachable_keys
+            .iter()
+            .map(|(key, position)| {
+                let mut successor = self.clone();
+                // move the successor to the key, taking the shortest path
+                successor.position = *position;
+                successor.steps += self
+                    .map
+                    .navigate(self.position, successor.position)
+                    .unwrap()
+                    .len();
+                // remove this key from the map
+                successor.map[successor.position] = Tile::Empty;
+                // unlock any doors opened by this key
+                successor.map.for_each_mut(|tile| {
+                    if *tile == Tile::Door(key.to_ascii_uppercase()) {
                         *tile = Tile::Empty;
                     }
                 });
-                self.unclaimed_keys.remove(&key);
-            }
-        }
-        self.steps += 1;
 
-        let mut out = Vec::with_capacity(4);
-        for direction in Direction::iter() {
-            let neighbor = self.map[self.position + direction];
-            match neighbor {
-                Tile::Empty | Tile::Entrance | Tile::Key(_) => {
-                    let mut successor = self.clone();
-                    successor.position = successor.position + direction;
-                    out.push(successor);
-                }
-                _ => {}
-            }
-        }
-        out
+                successor
+            })
+            .collect()
     }
 
-    fn explore_until_all_keys_claimed(self) -> usize {
+    fn explore_until_all_keys_claimed(&self) -> usize {
         let mut queue = VecDeque::new();
-        queue.push_back(self);
+        queue.push_back(self.clone());
 
         while let Some(explorer) = queue.pop_front() {
-            if explorer.unclaimed_keys.is_empty() {
-                // subtract 1 because we visit the entrance at step 0, but it counts here as step 1
-                return explorer.steps - 1;
-            }
             queue.extend(explorer.visit());
+            if queue.is_empty() {
+                return explorer.steps;
+            }
         }
 
-        unreachable!("failed to clear level")
+        self.steps
     }
 }
 
@@ -166,28 +166,58 @@ impl Explorer {
 mod tests {
     use super::*;
 
-    #[test]
-    fn example_0() {
-        let input = "
+    fn example_0() -> &'static str {
+        "
 #########
 #b.A.@.a#
 #########
-"
-        .trim();
-        let explorer = Explorer::from(Map::try_from(input).unwrap());
-        assert_eq!(explorer.explore_until_all_keys_claimed(), 8);
+        "
+        .trim()
     }
 
-    #[test]
-    fn example_1() {
-        let input = "
+    fn example_1() -> &'static str {
+        "
 ########################
 #f.D.E.e.C.b.A.@.a.B.c.#
 ######################.#
 #d.....................#
 ########################
-"
-        .trim();
+        "
+        .trim()
+    }
+
+    fn reachable_keys_impl(input: &str, position: Point, steps: usize) {
+        let explorer = Explorer::from(Map::try_from(input).unwrap());
+        let successors = explorer.visit();
+        assert_eq!(successors.len(), 1);
+        assert_eq!(successors[0].position, position);
+        successors[0].map.for_each(|tile| {
+            if *tile == Tile::Key('a') {
+                panic!("key a not removed");
+            }
+            if *tile == Tile::Door('A') {
+                panic!("door A not removed");
+            }
+        });
+        assert_eq!(successors[0].steps, steps);
+    }
+
+    #[test]
+    fn reachable_keys() {
+        reachable_keys_impl(example_0(), (7, 1).into(), 2);
+        reachable_keys_impl(example_1(), (17, 3).into(), 2);
+    }
+
+    #[test]
+    fn test_example_0() {
+        let input = example_0();
+        let explorer = Explorer::from(Map::try_from(input).unwrap());
+        assert_eq!(explorer.explore_until_all_keys_claimed(), 8);
+    }
+
+    #[test]
+    fn test_example_1() {
+        let input = example_1();
         let explorer = Explorer::from(Map::try_from(input).unwrap());
         assert_eq!(explorer.explore_until_all_keys_claimed(), 86);
     }

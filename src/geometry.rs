@@ -590,7 +590,10 @@ impl<T: Clone + Into<char>> fmt::Display for Map<T> {
 }
 
 impl<T: Clone> Map<T> {
-    pub fn for_each<F>(&self, visit: F) where F: FnMut(&T) {
+    pub fn for_each<F>(&self, visit: F)
+    where
+        F: FnMut(&T),
+    {
         self.tiles.iter().for_each(visit);
     }
 
@@ -601,7 +604,10 @@ impl<T: Clone> Map<T> {
         self.tiles.iter_mut().for_each(update);
     }
 
-    pub fn for_each_point<F>(&self, mut visit: F) where F: FnMut(&T, Point) {
+    pub fn for_each_point<F>(&self, mut visit: F)
+    where
+        F: FnMut(&T, Point),
+    {
         for y in 0..self.height {
             for x in 0..self.width {
                 visit(self.index((x, y)), (x, y).into());
@@ -684,12 +690,11 @@ impl<T: Clone + Into<Traversable>> Map<T> {
     /// navigate between the given points using A*
     // https://en.wikipedia.org/wiki/A*_search_algorithm#Pseudocode
     pub fn navigate(&self, from: Point, to: Point) -> Option<Vec<Direction>> {
-        let initial = AStarNode {
+        let mut open_set = BinaryHeap::new();
+        open_set.push(AStarNode {
             cost: 0,
             position: from,
-        };
-        let mut open_set = BinaryHeap::new();
-        open_set.push(initial);
+        });
 
         // key: node
         // value: node preceding it on the cheapest known path from start
@@ -715,6 +720,7 @@ impl<T: Clone + Into<Traversable>> Map<T> {
                     current = predecessor;
                     path.push(direction);
                 }
+                debug_assert!(path.len() as i32 >= (to - from).manhattan());
                 path.reverse();
                 return Some(path);
             }

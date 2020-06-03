@@ -6,7 +6,7 @@ use crate::{
 };
 use crossbeam_channel::{Receiver, Sender};
 use std::cmp::Ordering;
-use std::collections::{VecDeque};
+use std::collections::VecDeque;
 use std::path::Path;
 use std::thread;
 
@@ -40,7 +40,10 @@ impl Exercise for Day {
         {
             println!("target location: {:?}", droid.position);
             println!("{}", droid.show_map());
-            println!("route to origin: {:#?}", droid.map.navigate(droid.position, droid.origin));
+            println!(
+                "route to origin: {:#?}",
+                droid.map.navigate(droid.position, droid.origin)
+            );
         }
         let oxygenator = droid.position;
         // it turns out to be _much_ faster to intentionally fill the map
@@ -131,15 +134,12 @@ impl Droid {
         droid
     }
 
-
     fn go(&mut self, direction: Direction) -> Status {
         self.controller.send(movement_command(direction)).unwrap();
         let status: Status = self.sensor.recv().unwrap().into();
         let destination_tile = self.position + direction.deltas();
         match (self.map[destination_tile], status) {
-            (MapTile::Wall, _) => {
-                unreachable!("should never intentionally drive into a wall")
-            }
+            (MapTile::Wall, _) => unreachable!("should never intentionally drive into a wall"),
             (MapTile::Empty, Status::HitWall) | (MapTile::Oxygen, Status::HitWall) => {
                 unreachable!("unreliable cartography! aborting")
             }
