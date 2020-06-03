@@ -12,7 +12,10 @@ pub struct Day;
 impl Exercise for Day {
     fn part1(&self, path: &Path) {
         let explorer = Explorer::from_input(path);
-        println!("steps to claim all keys: {}", explorer.explore_until_all_keys_claimed());
+        println!(
+            "steps to claim all keys: {}",
+            explorer.explore_until_all_keys_claimed()
+        );
     }
 
     fn part2(&self, _path: &Path) {
@@ -38,8 +41,17 @@ struct Explorer {
     unclaimed_keys: HashSet<char>,
 }
 
-impl Explorer {
+impl std::fmt::Debug for Explorer {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "Explorer {{ position: {:?}, unclaimed_keys: {:?}, .. }}",
+            self.position, self.unclaimed_keys
+        )
+    }
+}
 
+impl Explorer {
     fn from_buffered<B: BufRead>(reader: B) -> Explorer {
         let mut explorer = Explorer::default();
 
@@ -92,7 +104,10 @@ impl Explorer {
         &mut self.map[self.position.y as usize][self.position.x as usize]
     }
 
-    fn tiles<F>(&mut self, update: F) where F: Fn(&mut Tile) {
+    fn tiles<F>(&mut self, update: F)
+    where
+        F: Fn(&mut Tile),
+    {
         for row in self.map.iter_mut() {
             for tile in row.iter_mut() {
                 update(tile);
@@ -108,8 +123,10 @@ impl Explorer {
             Tile::Empty => *self.tile_mut() = Tile::Visited,
             Tile::Key(key) => {
                 *self.tile_mut() = Tile::Visited;
-                self.tiles(|tile| if *tile == Tile::Door(key) || *tile == Tile::Visited {
-                    *tile = Tile::Empty;
+                self.tiles(|tile| {
+                    if *tile == Tile::Door(key.to_ascii_uppercase()) || *tile == Tile::Visited {
+                        *tile = Tile::Empty;
+                    }
                 });
                 self.unclaimed_keys.remove(&key);
             }
@@ -151,7 +168,8 @@ mod tests {
 #########
 #b.A.@.a#
 #########
-".trim();
+"
+        .trim();
         let explorer = Explorer::from_str(input);
         assert_eq!(explorer.explore_until_all_keys_claimed(), 8);
     }
@@ -164,7 +182,8 @@ mod tests {
 ######################.#
 #d.....................#
 ########################
-".trim();
+"
+        .trim();
         let explorer = Explorer::from_str(input);
         assert_eq!(explorer.explore_until_all_keys_claimed(), 86);
     }
